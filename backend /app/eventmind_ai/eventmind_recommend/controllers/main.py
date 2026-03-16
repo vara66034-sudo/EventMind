@@ -5,7 +5,6 @@ class EventMindRecommendAPI(http.Controller):
 
     @http.route('/api/recommendations', type='json', auth='user', methods=['POST'])
     def get_recommendations(self):
-        """Возвращает рекомендованные события для текущего пользователя."""
         user = request.env.user
         events = user.get_recommended_events(limit=10)
         data = []
