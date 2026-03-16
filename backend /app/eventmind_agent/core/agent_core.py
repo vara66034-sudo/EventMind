@@ -14,22 +14,9 @@ logger = logging.getLogger('EventMind.Agent')
 
 
 class EventMindAgent:
-    """
-    Main AI Agent class that orchestrates all components
-    
-    This agent runs in cycles:
-    1. Perception - gather data from various sources
-    2. Decision - analyze data and make decisions
-    3. Action - execute decisions (tagging, recommendations, notifications)
-    """
-    
+
     def __init__(self, config_path: Optional[str] = None):
-        """
-        Initialize the agent with configuration
-        
-        Args:
-            config_path: Path to configuration JSON file
-        """
+      
         self.config = self._load_config(config_path)
         self.running = False
         self.cycle_count = 0
@@ -39,8 +26,8 @@ class EventMindAgent:
         self._tagger = None
         self._notifier = None
         
-        logger.info("🤖 EventMind AI Agent initialized")
-        logger.info(f"📋 Config: {self.config}")
+        logger.info(" EventMind AI Agent initialized")
+        logger.info(f" Config: {self.config}")
     
     def _load_config(self, config_path: Optional[str]) -> Dict:
         """Load configuration from file or use defaults"""
@@ -75,9 +62,9 @@ class EventMindAgent:
                             default_config[key].update(value)
                         else:
                             default_config[key] = value
-                logger.info(f"✅ Loaded config from {config_path}")
+                logger.info(f" Loaded config from {config_path}")
             except Exception as e:
-                logger.error(f"❌ Failed to load config: {e}")
+                logger.error(f"Failed to load config: {e}")
         
         return default_config
     
@@ -104,7 +91,7 @@ class EventMindAgent:
         cycle_start = time.time()
         cycle_id = self.cycle_count + 1
         
-        logger.info(f"🚀 Starting AI Agent cycle #{cycle_id}")
+        logger.info(f" Starting AI Agent cycle #{cycle_id}")
         
         try:
             # Phase 1: PERCEPTION - gather data
@@ -123,7 +110,7 @@ class EventMindAgent:
             self.stats['last_run_success'] = True
             
             cycle_time = time.time() - cycle_start
-            logger.info(f"✅ Cycle #{cycle_id} completed in {cycle_time:.2f}s")
+            logger.info(f" Cycle #{cycle_id} completed in {cycle_time:.2f}s")
             
             return {
                 'success': True,
@@ -137,7 +124,7 @@ class EventMindAgent:
             }
             
         except Exception as e:
-            logger.error(f"❌ Cycle #{cycle_id} failed: {str(e)}")
+            logger.error(f"Cycle #{cycle_id} failed: {str(e)}")
             self.stats['last_run_success'] = False
             self.stats['errors'].append({
                 'cycle': cycle_id,
@@ -159,7 +146,7 @@ class EventMindAgent:
         Returns:
             Dict with collected data
         """
-        logger.info("📡 Phase 1: Perception")
+        logger.info(" Phase 1: Perception")
         
         # This would connect to Odoo, databases, etc.
         # For now, return placeholder data
@@ -172,7 +159,7 @@ class EventMindAgent:
             'sources': ['odoo', 'vk_api', 'timepad_api']
         }
         
-        logger.info(f"📊 Collected: {len(perception_data['events'])} events, "
+        logger.info(f" Collected: {len(perception_data['events'])} events, "
                    f"{len(perception_data['users'])} users")
         
         return perception_data
@@ -208,7 +195,7 @@ class EventMindAgent:
         if self.config['features']['notifications']:
             decisions['reminders_to_send'] = self._analyze_reminders(perception_data)
         
-        logger.info(f"📊 Decisions: {len(decisions['events_to_tag'])} events to tag, "
+        logger.info(f"Decisions: {len(decisions['events_to_tag'])} events to tag, "
                    f"{len(decisions['recommendations_to_generate'])} users for recommendations, "
                    f"{len(decisions['reminders_to_send'])} reminders")
         
@@ -335,7 +322,7 @@ class EventMindAgent:
     def stop(self):
         """Stop the agent"""
         self.running = False
-        logger.info("🛑 Agent stopped")
+        logger.info("Agent stopped")
     
     def get_stats(self) -> Dict:
         """Get agent statistics"""
