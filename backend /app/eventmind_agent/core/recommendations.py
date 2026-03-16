@@ -28,21 +28,18 @@ class Recommender:
         if not events:
             logger.warning(f"No events to recommend for user {user_id}")
             return []
-        
-        # Get user interests
+    
         user_interests = self._get_user_interests(user_id)
         
         if not user_interests:
-            # No interests, return popular/upcoming events
+           
             logger.info(f"User {user_id} has no interests, returning popular events")
             return self._get_popular_events(events, limit)
         
-        # Score each event
         scored_events = []
         for event in events:
             score = self._calculate_relevance(event, user_interests)
-            
-            # Boost score based on user's past interactions
+          
             score = self._apply_interaction_boost(user_id, event, score)
             
             if score > 0:
@@ -57,7 +54,6 @@ class Recommender:
                 
                 scored_events.append(result)
         
-        # Sort by score descending
         scored_events.sort(key=lambda x: -x['score'])
         
         logger.info(f"Generated {len(scored_events[:limit])} recommendations for user {user_id}")
@@ -65,28 +61,11 @@ class Recommender:
         return scored_events[:limit]
     
     def _get_user_interests(self, user_id: int) -> List[str]:
-        """
-        Get user interests from storage
         
-        This would typically call Odoo API or database
-        """
-        # Placeholder - in production, fetch from Odoo
-        # For demo purposes, return some default interests
         return ['Python', 'AI', 'Tech', 'Startup']
     
     def _calculate_relevance(self, event: Dict, user_interests: List[str]) -> float:
-        """
-        Calculate relevance score between event and user interests
         
-        Uses tag overlap as primary signal
-        
-        Args:
-            event: Event dictionary
-            user_interests: List of interest tags
-            
-        Returns:
-            Relevance score (0-1)
-        """
         # Extract tags from event
         event_tags = self._extract_event_tags(event)
         
@@ -132,17 +111,7 @@ class Recommender:
         return tags
     
     def _apply_interaction_boost(self, user_id: int, event: Dict, base_score: float) -> float:
-        """
-        Boost score based on user's past interactions
-        
-        Args:
-            user_id: User ID
-            event: Event dictionary
-            base_score: Base relevance score
-            
-        Returns:
-            Boosted score
-        """
+       
         interactions = self.interaction_history.get(user_id, [])
         
         # Check if user interacted with similar events
