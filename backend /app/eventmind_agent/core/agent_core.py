@@ -1,10 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-EventMind AI Agent Core
-Author: Nastya
-Description: Main agent orchestration and coordination
-"""
+
 
 import logging
 import json
