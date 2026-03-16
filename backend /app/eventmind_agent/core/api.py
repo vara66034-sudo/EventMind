@@ -20,12 +20,6 @@ class AgentAPI:
         logger.info("AgentAPI initialized")
     
     def get_status(self) -> Dict[str, Any]:
-        """
-        Get agent status
-        
-        Returns:
-            Dict with agent status and statistics
-        """
         return {
             'success': True,
             'data': self.agent.get_status(),
@@ -33,16 +27,6 @@ class AgentAPI:
         }
     
     def run_cycle(self, auth_token: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Manually trigger agent cycle
-        
-        Args:
-            auth_token: Authentication token (for security)
-            
-        Returns:
-            Dict with cycle results
-        """
-        # In production, validate auth_token
         logger.info("Manual cycle trigger requested")
         
         result = self.agent.run_cycle()
@@ -57,21 +41,9 @@ class AgentAPI:
                            user_id: int, 
                            limit: int = 10,
                            include_explanation: bool = False) -> Dict:
-        """
-        Get recommendations for a user
         
-        Args:
-            user_id: User ID
-            limit: Maximum number of recommendations
-            include_explanation: Whether to include explanations
-            
-        Returns:
-            Dict with recommendations
-        """
         try:
-            # This would typically get events from database
-            # For now, return placeholder
-            events = []  # Would fetch from Odoo
+            events = []  
             
             recommendations = self.recommender.get_recommendations(
                 user_id=user_id,
@@ -103,18 +75,6 @@ class AgentAPI:
                           event_id: int, 
                           interaction_type: str,
                           tags: Optional[List[str]] = None) -> Dict:
-        """
-        Record user interaction for learning
-        
-        Args:
-            user_id: User ID
-            event_id: Event ID
-            interaction_type: 'view', 'click', 'register', 'ics_download'
-            tags: Event tags (optional)
-            
-        Returns:
-            Dict with status
-        """
         try:
             self.recommender.record_interaction(
                 user_id=user_id,
@@ -139,16 +99,7 @@ class AgentAPI:
             }
     
     def update_user_interests(self, user_id: int, interests: List[str]) -> Dict:
-        """
-        Update user interests
-        
-        Args:
-            user_id: User ID
-            interests: List of interest tags
-            
-        Returns:
-            Dict with status
-        """
+
         try:
             self.recommender.update_user_profile(user_id, interests)
             
@@ -181,8 +132,7 @@ class AgentAPI:
             Dict with similar events
         """
         try:
-            # This would fetch events from database
-            events = []  # Would fetch from Odoo
+            events = []  
             
             similar = self.recommender.get_similar_events(
                 event_id=event_id,
@@ -207,15 +157,7 @@ class AgentAPI:
             }
     
     def handle_request(self, request_data: Dict) -> Dict:
-        """
-        Handle incoming API request (unified endpoint)
-        
-        Args:
-            request_data: Request with 'action' and parameters
-            
-        Returns:
-            Response data
-        """
+
         action = request_data.get('action')
         
         if not action:
@@ -260,16 +202,10 @@ class AgentAPI:
             return {'success': False, 'error': f'Unknown action: {action}'}
 
 
-# Global instance
 _api_instance = None
 
 def get_api() -> AgentAPI:
-    """
-    Get or create the global API instance
     
-    Returns:
-        AgentAPI instance
-    """
     global _api_instance
     if _api_instance is None:
         _api_instance = AgentAPI()
