@@ -1,0 +1,210 @@
+import requests
+import re
+from datetime import datetime
+
+TOKEN = "dfa1c6afdfa1c6afdfa1c6af8fdc9eafb9ddfa1dfa1c6afb619f2ab0e35e5a8b76e6915"
+VERSION = "5.131"
+
+GROUPS = [
+    "event162254678",
+    "stokrat_ekb",
+    "analysts_mitap",
+    "inachehackrussia",
+    "event26276043",
+    "aiesec_ekaterinburg",
+    "posnews",
+    "gamedevekb",
+    "ussc_group",
+    "naumenjavameetup",
+    "irit_rtf_urfu"
+]
+
+EVENT_WORDS = [
+    "митап", "конференц", "лекц", "воркшоп", "семинар",
+    "хакатон", "форум", "интенсив", "курс", "мастер",
+    "тренинг", "дискуссия", "презентация", "встреча", "event"
+]
+
+CONTEXT_WORDS = [
+    "регистрация", "участие", "вход", "бесплатно",
+    "начало", "когда", "где", "дата",
+    "адрес", "место", "онлайн", "офлайн"
+]
+
+PAST_MARKERS = ["итоги", "состоялось", "состоялся", "прошел", "прошёл", "завершился", "защита состоялась"]
+
+AUDIENCE_EXCLUDE = ["школьник", "абитуриент", "день открытых дверей"]
+
+PLACE_MARKERS = ["📌", "Бар", "Лекторий", "Коворкинг", "Конференц-зал"]
+
+MONTHS = [
+    "января","февраля","марта","апреля","мая","июня",
+    "июля","августа","сентября","октября","ноября","декабря"
+]
+
+DATE_PATTERN = r"(\d{1,2})(?:\s*(?:и|,)\s*(\d{1,2}))?\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)(?:,?\s*(\d{1,2}:\d{2}))?"
+
+def clean_text(text):
+    text = re.sub(r"https?://\S+", "", text)
+    return text.strip()
+
+def extract_dates(text, post_year):
+    dates = []
+    for match in re.finditer(DATE_PATTERN, text.lower()):
+        day1 = int(match.group(1))
+        day2 = match.group(2)
+        month = MONTHS.index(match.group(3)) + 1
+        time_str = match.group(4)
+        hour = 0
+        minute = 0
+        if time_str:
+            hour, minute = map(int, time_str.split(":"))
+        dates.append(datetime(post_year, month, day1, hour, minute))
+        if day2:
+            dates.append(datetime(post_year, month, int(day2), hour, minute))
+    dates = sorted(list(set(dates)))
+    return dates
+
+def is_future_event(dates):
+    now = datetime.now()
+    return any(d >= now for d in dates)
+
+def normalize_text(text):
+    text = re.sub(r"\W+", " ", text.lower())
+    return text.strip()
+
+def is_duplicate(text, seen_texts):
+    norm = normalize_text(text)
+    for existing in seen_texts:
+        if norm[:100] == existing[:100]:
+            return True
+    seen_texts.append(norm)
+    return False
+
+def extract_image(post):
+    attachments = post.get("attachments", [])
+    for att in attachments:
+        if att.get("type") == "photo":
+            sizes = att["photo"].get("sizes", [])
+            if sizes:
+                largest = max(sizes, key=lambda x: x["width"])
+                return largest["url"]
+    return None
+
+def extract_place(text, post):
+    # 1. Проверяем структурное поле VK
+    place_info = post.get("place")
+    if place_info and place_info.get("title"):
+        return place_info["title"]
+
+    # 2. Проверяем упоминание города
+    for line in text.split("\n"):
+        if "екатеринбург" in line.lower() or "г. екатеринбург" in line.lower():
+            return line.strip()
+
+    # 3. Ищем маркеры места
+    for line in text.split("\n"):
+        if any(m in line for m in PLACE_MARKERS):
+            return line.strip()
+
+    # 4. Онлайн-события
+    for line in text.split("\n"):
+        if any(w in line.lower() for w in ["онлайн", "zoom", "teams", "youtube"]):
+            return "онлайн"
+
+    # 5. Конструкции типа "в <название> пройдет/состоится/начнется"
+    pattern = r"(?:в|на)\s+([А-ЯЁ][^.,\n]*)\s+(?:пройдет|состоится|начнется|начнётся)"
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+
+    # 6. По умолчанию
+    return "не указано"
+
+def extract_title_description(text):
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    title = ""
+    description = text
+    for line in lines:
+        if any(kw in line.lower() for kw in EVENT_WORDS):
+            title = line
+            description = text.replace(title, "").strip()
+            break
+    if not title and lines:
+        title = lines[0]
+        description = text.replace(title, "").strip()
+    return title, description
+
+def score_post(text):
+    text = text.lower()
+    score = sum(2 for w in EVENT_WORDS if w in text)
+    score += sum(1 for w in CONTEXT_WORDS if w in text)
+    return score
+
+def is_event(text, dates):
+    text_clean = text.lower()
+    if any(word in text_clean for word in AUDIENCE_EXCLUDE):
+        return False
+    if any(marker in text_clean for marker in PAST_MARKERS):
+        return False
+    if not is_future_event(dates):
+        return False
+    return score_post(text_clean) >= 2
+
+def get_posts(domain):
+    url = "https://api.vk.com/method/wall.get"
+    params = {"access_token": TOKEN, "v": VERSION, "domain": domain, "count": 50}
+    response = requests.get(url, params=params)
+    data = response.json()
+    return data.get("response", {}).get("items", [])
+
+def parse():
+    results = []
+    seen_texts = []
+
+    for group in GROUPS:
+        print(f"\nПарсим: {group}")
+        posts = get_posts(group)
+        for post in posts:
+            text = post.get("text", "")
+            if not text:
+                continue
+            post_year = datetime.fromtimestamp(post["date"]).year
+            dates = extract_dates(text, post_year)
+            if not dates:
+                continue
+            if not is_event(text, dates):
+                continue
+            if is_duplicate(text, seen_texts):
+                continue
+
+            link = f"https://vk.com/{group}?w=wall{post['owner_id']}_{post['id']}"
+            image_url = extract_image(post)
+            title, description = extract_title_description(text)
+            place = extract_place(text, post)
+
+            results.append({
+                "title": title,
+                "dates": dates,
+                "description": description,
+                "location": place,
+                "link": link,
+                "raw_description": text,
+                "image_url": image_url
+            })
+
+    return results
+
+# Запуск парсера
+events = parse()
+
+print("\nНАЙДЕННЫЕ СОБЫТИЯ:\n")
+for e in events:
+    print("-----")
+    print("Название:", e["title"])
+    print("Даты:", e["dates"])
+    print("Описание:", e["description"])
+    print("Место:", e["location"])
+    print("Ссылка:", e["link"])
+    print("Картинка:", e["image_url"])
+    print("Raw текст:", e["raw_description"])
