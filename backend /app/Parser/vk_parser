@@ -106,8 +106,6 @@ def get_group_info(domain: str) -> Dict[str, Any]:
         }
     )
 
-    print("DEBUG groups.getById:", response)
-
     if isinstance(response, list):
         return response[0]
 
@@ -176,6 +174,11 @@ def parse_event_datetime(text: str, post_ts: int) -> Optional[str]:
         year = match.group("year")
         hour = int(match.group("hour")) if match.group("hour") else 0
         minute = int(match.group("minute")) if match.group("minute") else 0
+
+        if month < 1 or month > 12:
+            return None
+        if day < 1 or day > 31:
+            return None
 
         if year:
             year_int = int(year)
