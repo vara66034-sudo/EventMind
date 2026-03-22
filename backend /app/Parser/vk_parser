@@ -156,40 +156,48 @@ def extract_place(text: str) -> Optional[str]:
 
     patterns = [
         r"(?:где|место|локация|адрес)\s*[:\-]\s*(.+)",
+        r"(?:по адресу)\s+(.+?)(?:[.!?\n]|$)",
         r"📍\s*(?:место\s*[:\-]?\s*)?(.+)",
-        r"(?:пройдет|пройдёт|состоится)\s+в\s+([^\n,.]+)",
+        r"(?:пройдет|пройдёт|состоится|будет)\s+в\s+(.+?)(?:[.!?\n]|$)",
     ]
 
-    bad_place_markers = [
-        "ссылка",
-        "пройдите",
-        "регистрация",
-        "участия",
-        "подробности",
-        "подать заявку",
-        "vk.cc",
-        "http",
-        "https",
+    bad_values = [
+        "понедельник", "вторник", "среду", "среда", "четверг",
+        "пятницу", "пятница", "субботу", "суббота", "воскресенье",
+        "января", "февраля", "марта", "апреля", "мая", "июня",
+        "июля", "августа", "сентября", "октября", "ноября", "декабря",
+    ]
+
+    bad_markers = [
+        "ссылка", "регистрация", "подайте заявку", "пройдите",
+        "vk.cc", "http", "https", "leader-id"
     ]
 
     for pattern in patterns:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
-        if match:
-            place = match.group(1).split("\n")[0].strip(" .,-")
+        matches = re.findall(pattern, text, flags=re.IGNORECASE)
+        for place in matches:
+            place = place.split("\n")[0].strip(" .,-:;!\"'“”")
 
+            # убираем хвосты с датой/временем
             place = re.sub(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b.*$", "", place).strip()
-            place = re.sub(r"\b\d{1,2}\s*[-–]\s*\d{1,2}\s+[а-яА-Я]+\b.*$", "", place).strip()
             place = re.sub(r"\b\d{1,2}:\d{2}\b.*$", "", place).strip()
 
             low = place.lower()
-            if any(marker in low for marker in bad_place_markers):
-                return None
 
-            if len(place) >= 3:
-                return place[:255]
+            if not place or len(place) < 3:
+                continue
+
+            if any(word == low for word in bad_values):
+                continue
+
+            if any(marker in low for marker in bad_markers):
+                continue
+
+            # если нашли "по адресу Педагогическая 20, МЦ Лидер"
+            # это хороший кандидат
+            return place[:255]
 
     return None
-
 
 def parse_event_datetime(text: str, post_ts: int) -> Optional[str]:
     text = clean_text(text)
