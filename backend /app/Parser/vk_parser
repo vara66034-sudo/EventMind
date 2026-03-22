@@ -160,15 +160,30 @@ def extract_place(text: str) -> Optional[str]:
         r"(?:пройдет|пройдёт|состоится)\s+в\s+([^\n,.]+)",
     ]
 
+    bad_place_markers = [
+        "ссылка",
+        "пройдите",
+        "регистрация",
+        "участия",
+        "подробности",
+        "подать заявку",
+        "vk.cc",
+        "http",
+        "https",
+    ]
+
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
             place = match.group(1).split("\n")[0].strip(" .,-")
 
-            # отрезаем даты и время в конце
             place = re.sub(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b.*$", "", place).strip()
             place = re.sub(r"\b\d{1,2}\s*[-–]\s*\d{1,2}\s+[а-яА-Я]+\b.*$", "", place).strip()
             place = re.sub(r"\b\d{1,2}:\d{2}\b.*$", "", place).strip()
+
+            low = place.lower()
+            if any(marker in low for marker in bad_place_markers):
+                return None
 
             if len(place) >= 3:
                 return place[:255]
