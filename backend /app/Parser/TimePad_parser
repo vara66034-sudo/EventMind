@@ -1,0 +1,161 @@
+import requests
+import html
+from datetime import datetime
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+TOKEN = "fbf148c84bdcf452d12fc82054cffdacd7a26479"
+
+URL = "https://api.timepad.ru/v1/events.json"
+
+SEARCH_QUERIES = ["python", "it", "data", "ai"]
+
+
+def fetch_all_events():
+    all_events = []
+
+    for q in SEARCH_QUERIES:
+        params = {
+            "limit": 50,
+            "fields": "id,name,description,starts_at,location,poster_image",
+            "q": q
+        }
+
+        headers = {
+            "Authorization": f"Bearer {TOKEN}",
+            "User-Agent": "Mozilla/5.0"
+        }
+
+        response = requests.get(
+            URL,
+            params=params,
+            headers=headers,
+            verify=False,
+            proxies={"http": None, "https": None}
+        )
+
+        print(f"\nЗапрос: {q}")
+        print("STATUS:", response.status_code)
+
+        if response.status_code != 200:
+            continue
+
+        try:
+            events = response.json().get("values", [])
+            all_events.extend(events)
+        except:
+            pass
+
+    return all_events
+
+
+def is_it_event(event):
+    title = (event.get("name") or "").lower()
+    description = (event.get("description") or "").lower()
+
+    text = f"{title} {description}"
+
+    score = 0
+
+    strong_keywords = [
+        "python", "java", "javascript", "react", "node",
+        "backend", "frontend", "developer", "разработчик",
+        "программирование", "coding", "software",
+        "алгоритмы", "data science", "machine learning",
+        "ml", "ai", "нейросети", "api"
+    ]
+
+    for word in strong_keywords:
+        if word in text:
+            score += 3
+
+    medium_keywords = [
+        "it", "dev", "code", "sql", "дата", "data",
+        "технолог", "цифров", "аналитик"
+    ]
+
+    for word in medium_keywords:
+        if word in text:
+            score += 1
+
+    bad_keywords = [
+        "лекция", "история", "искусство", "запись",
+        "архив", "музыка", "кино", "театр", "экскурсия"
+    ]
+
+    for word in bad_keywords:
+        if word in title:
+            score -= 4
+
+    return score >= 2
+
+
+def parse_event(event):
+    title = html.unescape(event.get("name", ""))
+
+    description = event.get("description")
+    if description:
+        description = html.unescape(description)
+
+    # дата
+    date = None
+    if event.get("starts_at"):
+        try:
+            date = datetime.fromisoformat(event["starts_at"])
+        except:
+            pass
+
+    # место
+    location = None
+    loc = event.get("location")
+
+    if loc:
+        if loc.get("title"):
+            location = html.unescape(loc["title"])
+        elif loc.get("type") == "online":
+            location = "Онлайн"
+
+    url = f"https://timepad.ru/event/{event.get('id')}/"
+    image_url = None
+    if event.get("poster_image"):
+        image_url = event["poster_image"].get("default_url")
+
+    return {
+        "title": title,
+        "date": date,
+        "location": location,
+        "url": url,
+        "image": image_url,
+        "description": description
+    }
+
+
+def run():
+    events = fetch_all_events()
+
+    unique_events = {e["id"]: e for e in events}.values()
+
+    filtered_events = [e for e in unique_events if is_it_event(e)]
+
+    print(f"\nНайдено IT событий: {len(filtered_events)}\n")
+
+    for i, e in enumerate(filtered_events, 1):
+        parsed = parse_event(e)
+
+        print("=" * 50)
+        print(i)
+        print("Название:", parsed["title"])
+        print("Дата:", parsed["date"])
+        print("Место:", parsed["location"])
+        print("Ссылка:", parsed["url"])
+        print("Картинка:", parsed["image"])
+
+        if parsed["description"]:
+            print("Описание:", parsed["description"][:200], "...")
+        else:
+            print("Описание: нет")
+
+
+if __name__ == "__main__":
+    run()
