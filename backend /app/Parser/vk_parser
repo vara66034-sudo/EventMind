@@ -1,4 +1,5 @@
 import json
+import psycopg2
 import re
 import time
 from datetime import datetime, timedelta
@@ -419,6 +420,47 @@ def build_event(post: Dict[str, Any], group: Dict[str, Any]) -> Optional[Dict[st
         "post_published_at": datetime.fromtimestamp(post["date"]).isoformat(),
     }
 
+def get_db_connection():
+    return psycopg2.connect(
+        dbname="eventmind",
+        user="postgres",
+        password="kokos2007",
+        host="localhost",
+        port="5432"
+    )
+
+def save_events_to_db(events: List[Dict[str, Any]]) -> None:
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    for event in events:
+        cur.execute("""
+            INSERT INTO events (
+                title,
+                event_date,
+                description,
+                location,
+                source,
+                source_url,
+                image_url,
+                raw_description
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (source_url) DO NOTHING
+        """, (
+            event["title"],
+            event["event_date"],
+            event["description"],
+            event["place"],
+            event["source"],
+            event["source_url"],
+            event["image_url"],
+            event["raw_description"]
+        ))
+
+    conn.commit()
+    cur.close()
+    conn.close()
 
 def main() -> None:
     if VK_TOKEN == "YOUR_VK_TOKEN":
@@ -446,6 +488,9 @@ def main() -> None:
     with open("events.json", "w", encoding="utf-8") as f:
         json.dump(all_events, f, ensure_ascii=False, indent=2)
 
+    save_events_to_db(all_events)
+
+    print("События сохранены в PostgreSQL")
     print(f"\nГотово. Сохранено событий: {len(all_events)}")
     print("Файл: events.json")
 
