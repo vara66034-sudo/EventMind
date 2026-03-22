@@ -186,9 +186,12 @@ def parse_event_datetime(text: str, post_ts: int) -> Optional[str]:
                 year_int += 2000
         else:
             year_int = now.year
-            candidate = datetime(year_int, month, day, hour, minute)
-            if candidate < now - timedelta(days=30):
-                year_int += 1
+            try:
+                candidate = datetime(year_int, month, day, hour, minute)
+                if candidate < now - timedelta(days=30):
+                    year_int += 1
+            except ValueError:
+                return None
 
         try:
             return datetime(year_int, month, day, hour, minute).isoformat()
@@ -204,14 +207,18 @@ def parse_event_datetime(text: str, post_ts: int) -> Optional[str]:
         hour = int(match.group("hour")) if match.group("hour") else 0
         minute = int(match.group("minute")) if match.group("minute") else 0
 
-        if month:
-            try:
-                candidate = datetime(year, month, day, hour, minute)
-                if not match.group("year") and candidate < now - timedelta(days=30):
-                    candidate = datetime(year + 1, month, day, hour, minute)
-                return candidate.isoformat()
-            except ValueError:
-                return None
+        if not month:
+            return None
+        if day < 1 or day > 31:
+            return None
+
+        try:
+            candidate = datetime(year, month, day, hour, minute)
+            if not match.group("year") and candidate < now - timedelta(days=30):
+                candidate = datetime(year + 1, month, day, hour, minute)
+            return candidate.isoformat()
+        except ValueError:
+            return None
 
     lower = text.lower()
 
@@ -237,7 +244,37 @@ def looks_like_event(text: str) -> bool:
     if not text:
         return False
 
-    has_keyword = any(word in text for word in EVENT_KEYWORDS)
+    trash_markers = [
+        "итоги",
+        "подводим итоги",
+        "фотоотчет",
+        "фотоотчёт",
+        "отчет",
+        "отчёт",
+        "отзывы",
+        "спасибо всем",
+        "как это было",
+        "прошел",
+        "прошёл",
+        "прошедшего",
+        "воспоминания",
+        "ищите себя на фото",
+        "альбом",
+    ]
+    if any(marker in text for marker in trash_markers):
+        return False
+
+    event_keywords = [
+        "митап", "meetup", "конференц", "лекци", "воркшоп", "мастер-класс",
+        "хакатон", "hackathon", "стартап", "startup", "интенсив", "семинар",
+        "форум", "ивент", "event", "нетворкинг", "регистрация", "билеты",
+        "встреча", "приглашаем", "присоединяйтесь", "день открытых дверей",
+        "дискуссия", "питч", "стрим", "очно", "онлайн", "офлайн",
+        "открыта регистрация", "ждем вас", "ждём вас", "приходите",
+        "состоится", "пройдет", "пройдёт"
+    ]
+
+    has_keyword = any(word in text for word in event_keywords)
     has_date = bool(
         DATE_DDMMYYYY_RE.search(text)
         or DATE_TEXTUAL_RE.search(text)
@@ -246,10 +283,68 @@ def looks_like_event(text: str) -> bool:
     )
     has_action = any(word in text for word in [
         "регистрация", "билеты", "участие", "подать заявку",
-        "приходите", "ждём вас", "ждем вас"
+        "приходите", "ждём вас", "ждем вас", "состоится",
+        "пройдет", "пройдёт"
     ])
 
     return (has_keyword and has_date) or (has_date and has_action)
+
+def extract_title(text: str, group_name: str = "") -> str:
+    text = clean_text(text)
+    lines = [line.strip(" -–—•\t") for line in text.split("\n") if line.strip()]
+
+    if not lines:
+        return "Без названия"
+
+    bad_starts = [
+        "друзья",
+        "всем привет",
+        "привет",
+        "коллеги",
+        "делимся",
+        "напоминаем",
+        "спасибо",
+        "как это было",
+        "подводим итоги",
+        "итоги",
+    ]
+
+    event_markers = [
+        "митап", "meetup", "конференц", "лекци", "воркшоп", "мастер-класс",
+        "хакатон", "hackathon", "форум", "семинар", "интенсив",
+        "день открытых дверей", "нетворкинг", "встреча", "дискуссия",
+        "питч", "регистрация", "состоится", "пройдет", "пройдёт"
+    ]
+
+    # 1. Ищем самую похожую на название строку
+    for line in lines[:8]:
+        low = line.lower()
+
+        if any(low.startswith(bs) for bs in bad_starts):
+            continue
+
+        if len(line) < 8:
+            continue
+
+        if len(line) > 140:
+            continue
+
+        if any(marker in low for marker in event_markers):
+            return line[:120]
+
+    # 2. Если не нашли — берём первую вменяемую строку
+    for line in lines[:5]:
+        low = line.lower()
+
+        if any(low.startswith(bs) for bs in bad_starts):
+            continue
+
+        if 8 <= len(line) <= 120:
+            return line[:120]
+
+    # 3. Фолбэк
+    first = lines[0][:120]
+    return first if first else "Без названия"
 
 
 def build_event(post: Dict[str, Any], group: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -263,15 +358,13 @@ def build_event(post: Dict[str, Any], group: Dict[str, Any]) -> Optional[Dict[st
     post_id = post["id"]
     owner_id = post["owner_id"]
 
-    title = text.split("\n")[0].strip(" .-")
-    if not title:
-        title = f"Пост {post_id}"
+    title = extract_title(text, group.get("name", ""))
 
     return {
         "source": "vk",
         "group_domain": group.get("screen_name"),
         "group_name": group.get("name"),
-        "title": title[:255],
+        "title": title,
         "event_date": parse_event_datetime(text, post.get("date", 0)),
         "description": text[:1200],
         "place": extract_place(text),
