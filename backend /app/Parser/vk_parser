@@ -154,11 +154,24 @@ def choose_best_photo_url(attachments: List[Dict[str, Any]]) -> Optional[str]:
 def extract_place(text: str) -> Optional[str]:
     text = clean_text(text)
 
-    for pattern in PLACE_PATTERNS:
+    patterns = [
+        r"(?:где|место|локация|адрес)\s*[:\-]\s*(.+)",
+        r"📍\s*(?:место\s*[:\-]?\s*)?(.+)",
+        r"(?:пройдет|пройдёт|состоится)\s+в\s+([^\n,.]+)",
+    ]
+
+    for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
             place = match.group(1).split("\n")[0].strip(" .,-")
-            return place[:255] if place else None
+
+            # отрезаем даты и время в конце
+            place = re.sub(r"\b\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?\b.*$", "", place).strip()
+            place = re.sub(r"\b\d{1,2}\s*[-–]\s*\d{1,2}\s+[а-яА-Я]+\b.*$", "", place).strip()
+            place = re.sub(r"\b\d{1,2}:\d{2}\b.*$", "", place).strip()
+
+            if len(place) >= 3:
+                return place[:255]
 
     return None
 
@@ -167,58 +180,71 @@ def parse_event_datetime(text: str, post_ts: int) -> Optional[str]:
     text = clean_text(text)
     now = datetime.now()
 
-    match = DATE_DDMMYYYY_RE.search(text)
-    if match:
-        day = int(match.group("day"))
-        month = int(match.group("month"))
-        year = match.group("year")
-        hour = int(match.group("hour")) if match.group("hour") else 0
-        minute = int(match.group("minute")) if match.group("minute") else 0
+    priority_lines = []
+    for line in text.split("\n"):
+        low = line.lower()
+        if any(word in low for word in [
+            "когда", "дата", "время", "состоится", "пройдет", "пройдёт",
+            "встреча", "митап", "конференция", "форум", "лекция",
+            "мастер-класс", "хакатон", "фестиваль", "финал"
+        ]):
+            priority_lines.append(line)
 
-        if month < 1 or month > 12:
-            return None
-        if day < 1 or day > 31:
-            return None
+    search_texts = priority_lines + [text]
 
-        if year:
-            year_int = int(year)
-            if year_int < 100:
-                year_int += 2000
-        else:
-            year_int = now.year
+    for chunk in search_texts:
+        match = DATE_DDMMYYYY_RE.search(chunk)
+        if match:
+            day = int(match.group("day"))
+            month = int(match.group("month"))
+            year = match.group("year")
+            hour = int(match.group("hour")) if match.group("hour") else 0
+            minute = int(match.group("minute")) if match.group("minute") else 0
+
+            if month < 1 or month > 12:
+                continue
+            if day < 1 or day > 31:
+                continue
+
+            if year:
+                year_int = int(year)
+                if year_int < 100:
+                    year_int += 2000
+            else:
+                year_int = now.year
+                try:
+                    candidate = datetime(year_int, month, day, hour, minute)
+                    if candidate < now - timedelta(days=30):
+                        year_int += 1
+                except ValueError:
+                    continue
+
             try:
-                candidate = datetime(year_int, month, day, hour, minute)
-                if candidate < now - timedelta(days=30):
-                    year_int += 1
+                return datetime(year_int, month, day, hour, minute).isoformat()
             except ValueError:
-                return None
+                continue
 
-        try:
-            return datetime(year_int, month, day, hour, minute).isoformat()
-        except ValueError:
-            return None
+        match = DATE_TEXTUAL_RE.search(chunk.lower())
+        if match:
+            day = int(match.group("day"))
+            month_name = match.group("month").lower()
+            month = MONTHS.get(month_name)
+            year = int(match.group("year")) if match.group("year") else now.year
+            hour = int(match.group("hour")) if match.group("hour") else 0
+            minute = int(match.group("minute")) if match.group("minute") else 0
 
-    match = DATE_TEXTUAL_RE.search(text.lower())
-    if match:
-        day = int(match.group("day"))
-        month_name = match.group("month").lower()
-        month = MONTHS.get(month_name)
-        year = int(match.group("year")) if match.group("year") else now.year
-        hour = int(match.group("hour")) if match.group("hour") else 0
-        minute = int(match.group("minute")) if match.group("minute") else 0
+            if not month:
+                continue
+            if day < 1 or day > 31:
+                continue
 
-        if not month:
-            return None
-        if day < 1 or day > 31:
-            return None
-
-        try:
-            candidate = datetime(year, month, day, hour, minute)
-            if not match.group("year") and candidate < now - timedelta(days=30):
-                candidate = datetime(year + 1, month, day, hour, minute)
-            return candidate.isoformat()
-        except ValueError:
-            return None
+            try:
+                candidate = datetime(year, month, day, hour, minute)
+                if not match.group("year") and candidate < now - timedelta(days=30):
+                    candidate = datetime(year + 1, month, day, hour, minute)
+                return candidate.isoformat()
+            except ValueError:
+                continue
 
     lower = text.lower()
 
@@ -291,7 +317,7 @@ def looks_like_event(text: str) -> bool:
 
 def extract_title(text: str, group_name: str = "") -> str:
     text = clean_text(text)
-    lines = [line.strip(" -–—•\t") for line in text.split("\n") if line.strip()]
+    lines = [line.strip(" -–—•\t✨💡📍🗓️⏰‼️") for line in text.split("\n") if line.strip()]
 
     if not lines:
         return "Без названия"
@@ -309,31 +335,8 @@ def extract_title(text: str, group_name: str = "") -> str:
         "итоги",
     ]
 
-    event_markers = [
-        "митап", "meetup", "конференц", "лекци", "воркшоп", "мастер-класс",
-        "хакатон", "hackathon", "форум", "семинар", "интенсив",
-        "день открытых дверей", "нетворкинг", "встреча", "дискуссия",
-        "питч", "регистрация", "состоится", "пройдет", "пройдёт"
-    ]
-
-    # 1. Ищем самую похожую на название строку
-    for line in lines[:8]:
-        low = line.lower()
-
-        if any(low.startswith(bs) for bs in bad_starts):
-            continue
-
-        if len(line) < 8:
-            continue
-
-        if len(line) > 140:
-            continue
-
-        if any(marker in low for marker in event_markers):
-            return line[:120]
-
-    # 2. Если не нашли — берём первую вменяемую строку
-    for line in lines[:5]:
+    # 1. Сначала пробуем взять первую адекватную строку из начала поста
+    for line in lines[:3]:
         low = line.lower()
 
         if any(low.startswith(bs) for bs in bad_starts):
@@ -342,9 +345,28 @@ def extract_title(text: str, group_name: str = "") -> str:
         if 8 <= len(line) <= 120:
             return line[:120]
 
-    # 3. Фолбэк
-    first = lines[0][:120]
-    return first if first else "Без названия"
+    # 2. Потом ищем более "событийную" строку
+    event_markers = [
+        "митап", "meetup", "конференц", "лекци", "воркшоп", "мастер-класс",
+        "хакатон", "hackathon", "форум", "семинар", "интенсив",
+        "день открытых дверей", "нетворкинг", "встреча", "дискуссия",
+        "питч", "регистрация", "состоится", "пройдет", "пройдёт",
+        "открываем регистрацию", "открыт набор", "приглашаем"
+    ]
+
+    for line in lines[:8]:
+        low = line.lower()
+
+        if any(low.startswith(bs) for bs in bad_starts):
+            continue
+
+        if len(line) < 8 or len(line) > 140:
+            continue
+
+        if any(marker in low for marker in event_markers):
+            return line[:120]
+
+    return lines[0][:120]
 
 
 def build_event(post: Dict[str, Any], group: Dict[str, Any]) -> Optional[Dict[str, Any]]:
