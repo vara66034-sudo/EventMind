@@ -4,6 +4,7 @@ import Register from './components/Register';
 import ProtectedRoute from './components/ProtectedRoute';
 import Home from './pages/Home';
 import Interests from './pages/Interests';
+import Schedule from './pages/Schedule';  // импортируем новую страницу
 
 function App() {
     return (
@@ -24,6 +25,14 @@ function App() {
                     element={
                         <ProtectedRoute>
                             <Interests />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/schedule"
+                    element={
+                        <ProtectedRoute>
+                            <Schedule />
                         </ProtectedRoute>
                     }
                 />
