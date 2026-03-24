@@ -26,7 +26,46 @@ class AgentAPI:
         self.odoo_admin_pw = odoo_config.get('password', 'admin')
         logger.info("AgentAPI initialized")
 
-    # -------------------- Существующие методы --------------------
+    # -------------------- Вспомогательные методы --------------------
+
+    def _fetch_events_from_odoo(self, date_from: datetime = None, date_to: datetime = None) -> List[Dict]:
+        """Загружает события из Odoo через XML-RPC"""
+        try:
+            common = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/common")
+            uid = common.authenticate(self.odoo_db, self.odoo_admin, self.odoo_admin_pw, {})
+            if not uid:
+                logger.error("Cannot authenticate to Odoo")
+                return []
+
+            models = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/object")
+            domain = []
+            if date_from:
+                domain.append(('date_begin', '>=', date_from.isoformat()))
+            if date_to:
+                domain.append(('date_begin', '<=', date_to.isoformat()))
+            else:
+                domain.append(('date_begin', '>=', datetime.now().isoformat()))
+
+            events = models.execute_kw(
+                self.odoo_db, uid, self.odoo_admin_pw,
+                'event.event', 'search_read',
+                [domain],
+                {'fields': ['id', 'name', 'date_begin', 'date_end', 'location', 'description', 'tag_ids']}
+            )
+            # Преобразуем tag_ids в список названий тегов
+            for e in events:
+                if e.get('tag_ids'):
+                    tags = models.execute_kw(self.odoo_db, uid, self.odoo_admin_pw,
+                                             'event.tag', 'read', [e['tag_ids']], {'fields': ['name']})
+                    e['tags'] = [t['name'] for t in tags]
+                else:
+                    e['tags'] = []
+            return events
+        except Exception as e:
+            logger.error(f"Failed to fetch events from Odoo: {e}")
+            return []
+
+    # -------------------- Основные методы --------------------
 
     def get_status(self) -> Dict[str, Any]:
         return {
@@ -49,8 +88,7 @@ class AgentAPI:
                             limit: int = 10,
                             include_explanation: bool = False) -> Dict:
         try:
-            # events = []  # здесь нужно получать реальные события из Odoo
-            events = []  # заглушка
+            events = self._fetch_events_from_odoo()
             recommendations = self.recommender.get_recommendations(
                 user_id=user_id,
                 events=events,
@@ -93,7 +131,6 @@ class AgentAPI:
     def update_user_interests(self, user_id: int, interests: List[str]) -> Dict:
         try:
             self.recommender.update_user_profile(user_id, interests)
-            # Синхронизируем с календарём
             calendar = get_user_calendar(user_id)
             calendar.set_interests(interests)
             return {
@@ -111,7 +148,7 @@ class AgentAPI:
 
     def get_similar_events(self, event_id: int, limit: int = 5) -> Dict:
         try:
-            events = []  # заглушка
+            events = self._fetch_events_from_odoo()
             similar = self.recommender.get_similar_events(
                 event_id=event_id,
                 events=events,
@@ -173,7 +210,7 @@ class AgentAPI:
                     'password': password,
                     'email': email,
                     'partner_id': partner_id,
-                    'groups_id': [(6, 0, [1])]  # группа Internal User
+                    'groups_id': [(6, 0, [1])]
                 }]
             )
 
@@ -227,7 +264,6 @@ class AgentAPI:
         return {'success': True, 'message': 'Logged out successfully'}
 
     def get_current_user(self, token: str) -> Dict:
-        # В реальном приложении нужно проверять токен
         return {'success': False, 'error': 'Not implemented'}
 
     def update_user_profile(self, user_id: int, name: str = None, interests: List[str] = None) -> Dict:
@@ -241,10 +277,9 @@ class AgentAPI:
             logger.error(f"Update profile error: {e}")
             return {'success': False, 'error': str(e)}
 
-    # -------------------- Новые методы для расписания --------------------
+    # -------------------- Расписание и рекомендации с учётом времени --------------------
 
     def add_busy_slot(self, user_id: int, start: str, end: str, title: str) -> Dict:
-        """Добавить занятое время в календарь"""
         try:
             calendar = get_user_calendar(user_id)
             slot = TimeSlot(
@@ -260,7 +295,6 @@ class AgentAPI:
             return {'success': False, 'error': str(e)}
 
     def get_schedule(self, user_id: int, start_date: str) -> Dict:
-        """Получить расписание пользователя на неделю"""
         try:
             calendar = get_user_calendar(user_id)
             start = datetime.fromisoformat(start_date)
@@ -272,29 +306,55 @@ class AgentAPI:
 
     def get_recommendations_with_schedule(self, user_id: int, limit: int = 10) -> Dict:
         """
-        Рекомендации с учётом свободного времени
+        Возвращает рекомендации с учётом занятости пользователя.
+        Сначала получаем обычные рекомендации (с оценкой релевантности),
+        затем проверяем доступность времени и пересчитываем итоговую оценку.
         """
         try:
-            # Здесь нужно получить реальные события из Odoo
-            events = []  # заглушка
+            # Загружаем события
+            events = self._fetch_events_from_odoo()
             if not events:
                 return {'success': True, 'data': [], 'message': 'No events available'}
 
+            # Получаем рекомендации с релевантностью
+            recs = self.recommender.get_recommendations(
+                user_id=user_id,
+                events=events,
+                limit=100,  # берём больше, чтобы потом отфильтровать
+                include_explanation=True
+            )
+
             calendar = get_user_calendar(user_id)
             scored = []
-            for event in events:
-                event_date = datetime.fromisoformat(event.get('date_begin', '').replace('Z', '+00:00'))
-                # Проверка доступности
-                available = calendar.is_available(event_date, duration_hours=2)
-                # Базовая релевантность (можно использовать рекомендации)
-                relevance = 0.5  # заглушка
-                score = relevance * 0.6 + (1.0 if available else 0.0) * 0.4
-                if score > 0:
-                    scored.append({
+
+            for rec in recs:
+                event = rec['event']
+                relevance = rec['score']
+
+                # Проверяем доступность
+                available = False
+                if event.get('date_begin'):
+                    try:
+                        event_date = datetime.fromisoformat(event['date_begin'].replace('Z', '+00:00'))
+                        available = calendar.is_available(event_date, duration_hours=2)
+                    except Exception as e:
+                        logger.error(f"Error parsing event date: {e}")
+                        available = True
+
+                # Итоговая оценка: 60% релевантность, 40% доступность
+                final_score = relevance * 0.6 + (1.0 if available else 0.0) * 0.4
+                if final_score > 0:
+                    result = {
                         'event': event,
-                        'score': score,
-                        'available': available
-                    })
+                        'score': final_score,
+                        'relevance_score': relevance,
+                        'available': available,
+                        'id': event.get('id')
+                    }
+                    if rec.get('explanation'):
+                        result['explanation'] = rec['explanation']
+                    scored.append(result)
+
             scored.sort(key=lambda x: -x['score'])
             return {
                 'success': True,
@@ -364,7 +424,7 @@ class AgentAPI:
                 name=request_data.get('name'),
                 interests=request_data.get('interests')
             )
-        # Новые действия для расписания
+        # Расписание
         elif action == 'add_busy_slot':
             return self.add_busy_slot(
                 user_id=request_data.get('user_id'),
