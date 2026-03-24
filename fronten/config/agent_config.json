@@ -1,0 +1,9 @@
+{
+    "odoo": {
+        "url": "https://your-odoo-server.com",
+        "db": "eventmind",
+        "username": "admin",
+        "password": "admin_password"
+    },
+    "gigachat": { ... }
+}
