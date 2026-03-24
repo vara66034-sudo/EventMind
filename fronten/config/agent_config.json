@@ -1,9 +1,19 @@
 {
     "odoo": {
-        "url": "https://your-odoo-server.com",
+        "url": "http://204.12.253.210:8075",
         "db": "eventmind",
-        "username": "admin",
-        "password": "admin_password"
+        "username": "varvarikanet07@vk.com",
+        "password": "1357924680Varu."
     },
-    "gigachat": { ... }
+    "agent": {
+        "name": "EventMind AI Agent",
+        "cycle_interval": 3600,
+        "max_events_per_cycle": 100,
+        "recommendation_limit": 20
+    },
+    "features": {
+        "auto_tagging": true,
+        "recommendations": true,
+        "notifications": true
+    }
 }
