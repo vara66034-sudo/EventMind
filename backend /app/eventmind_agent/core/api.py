@@ -17,6 +17,11 @@ class AgentAPI:
         """Initialize API with agent and recommender"""
         self.agent = get_agent()
         self.recommender = get_recommender()
+        odoo_config = self.agent.config.get('odoo', {})
+        self.odoo_url = odoo_config.get('url', 'http://localhost:8069')
+        self.odoo_db = odoo_config.get('db', 'eventmind')
+        self.odoo_admin = odoo_config.get('username', 'admin')
+        self.odoo_admin_pw = odoo_config.get('password', 'admin')
         logger.info("AgentAPI initialized")
     
     def get_status(self) -> Dict[str, Any]:
@@ -155,6 +160,197 @@ class AgentAPI:
                 'success': False,
                 'error': str(e)
             }
+    def _get_odoo_connection(self, username: str, password: str):
+        """Подключение к Odoo для аутентификации"""
+        try:
+            common = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/common")
+            uid = common.authenticate(self.odoo_db, username, password, {})
+            if uid:
+                models = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/object")
+                return {'uid': uid, 'models': models}
+            return None
+        except Exception as e:
+            logger.error(f"Odoo connection error: {e}")
+            return None
+
+    def register_user(self, email: str, password: str, name: str = None) -> Dict:
+        """Регистрация нового пользователя"""
+        try:
+         
+            admin_conn = self._get_odoo_connection(self.odoo_admin, self.odoo_admin_pw)
+            if not admin_conn:
+                return {'success': False, 'error': 'Cannot connect to Odoo server'}
+
+            
+            existing = admin_conn['models'].execute_kw(
+                self.odoo_db, admin_conn['uid'], self.odoo_admin_pw,
+                'res.users', 'search',
+                [[['login', '=', email]]]
+            )
+            if existing:
+                return {'success': False, 'error': 'User with this email already exists'}
+
+          
+            partner_id = admin_conn['models'].execute_kw(
+                self.odoo_db, admin_conn['uid'], self.odoo_admin_pw,
+                'res.partner', 'create', [{
+                    'name': name or email.split('@')[0],
+                    'email': email,
+                }]
+            )
+
+            
+            user_id = admin_conn['models'].execute_kw(
+                self.odoo_db, admin_conn['uid'], self.odoo_admin_pw,
+                'res.users', 'create', [{
+                    'name': name or email.split('@')[0],
+                    'login': email,
+                    'password': password,
+                    'email': email,
+                    'partner_id': partner_id,
+                    'groups_id': [(6, 0, [1])]  
+                }]
+            )
+
+            logger.info(f"New user registered: {email} (ID: {user_id})")
+            return {
+                'success': True,
+                'data': {
+                    'user_id': user_id,
+                    'email': email,
+                    'name': name or email.split('@')[0]
+                },
+                'message': 'Registration successful'
+            }
+        except Exception as e:
+            logger.error(f"Registration error: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def login_user(self, email: str, password: str) -> Dict:
+        """Вход пользователя"""
+        try:
+           
+            common = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/common")
+            uid = common.authenticate(self.odoo_db, email, password, {})
+            if not uid:
+                return {'success': False, 'error': 'Invalid email or password'}
+
+          
+            models = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/object")
+            user_data = models.execute_kw(
+                self.odoo_db, uid, password,
+                'res.users', 'read',
+                [uid],
+                {'fields': ['id', 'name', 'login', 'email', 'partner_id']}
+            )
+
+            
+            token = hashlib.sha256(f"{email}:{password}:{secrets.token_hex(16)}".encode()).hexdigest()
+           
+
+            logger.info(f"User logged in: {email} (ID: {uid})")
+            return {
+                'success': True,
+                'data': {
+                    'user_id': uid,
+                    'email': user_data[0]['login'],
+                    'name': user_data[0]['name'],
+                    'token': token,
+                    'partner_id': user_data[0]['partner_id'][0] if user_data[0]['partner_id'] else None
+                }
+            }
+        except Exception as e:
+            logger.error(f"Login error: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def logout_user(self, token: str) -> Dict:
+        """Выход пользователя"""
+        logger.info(f"User logged out (token: {token[:10]}...)")
+        return {'success': True, 'message': 'Logged out successfully'}
+
+    def get_current_user(self, token: str) -> Dict:
+        """Получить текущего пользователя по токену (заглушка)"""
+        return {'success': False, 'error': 'Not implemented'}
+
+    def update_user_profile(self, user_id: int, name: str = None, interests: List[str] = None) -> Dict:
+        """Обновить профиль пользователя"""
+        try:
+            if interests is not None:
+                self.recommender.update_user_profile(user_id, interests)
+         
+            return {'success': True, 'message': 'Profile updated'}
+        except Exception as e:
+            logger.error(f"Update profile error: {e}")
+            return {'success': False, 'error': str(e)}
+
+
+    def handle_request(self, request_data: Dict) -> Dict:
+        action = request_data.get('action')
+        if not action:
+            return {'success': False, 'error': 'No action specified'}
+
+        logger.info(f"API request: {action}")
+
+        if action == 'status':
+            return self.get_status()
+        elif action == 'run_cycle':
+            return self.run_cycle(request_data.get('auth_token'))
+        elif action == 'recommendations':
+            return self.get_recommendations(
+                user_id=request_data.get('user_id'),
+                limit=request_data.get('limit', 10),
+                include_explanation=request_data.get('include_explanation', False)
+            )
+        elif action == 'interaction':
+            return self.record_interaction(
+                user_id=request_data.get('user_id'),
+                event_id=request_data.get('event_id'),
+                interaction_type=request_data.get('type'),
+                tags=request_data.get('tags')
+            )
+        elif action == 'update_interests':
+            return self.update_user_interests(
+                user_id=request_data.get('user_id'),
+                interests=request_data.get('interests', [])
+            )
+        elif action == 'similar':
+            return self.get_similar_events(
+                event_id=request_data.get('event_id'),
+                limit=request_data.get('limit', 5)
+            )
+        # Новые действия для авторизации
+        elif action == 'register':
+            return self.register_user(
+                email=request_data.get('email'),
+                password=request_data.get('password'),
+                name=request_data.get('name')
+            )
+        elif action == 'login':
+            return self.login_user(
+                email=request_data.get('email'),
+                password=request_data.get('password')
+            )
+        elif action == 'logout':
+            return self.logout_user(token=request_data.get('token'))
+        elif action == 'current_user':
+            return self.get_current_user(token=request_data.get('token'))
+        elif action == 'update_profile':
+            return self.update_user_profile(
+                user_id=request_data.get('user_id'),
+                name=request_data.get('name'),
+                interests=request_data.get('interests')
+            )
+        else:
+            return {'success': False, 'error': f'Unknown action: {action}'}
+
+
+_api_instance = None
+
+def get_api() -> AgentAPI:
+    global _api_instance
+    if _api_instance is None:
+        _api_instance = AgentAPI()
+    return _api_instance
     
     def handle_request(self, request_data: Dict) -> Dict:
 
@@ -210,3 +406,4 @@ def get_api() -> AgentAPI:
     if _api_instance is None:
         _api_instance = AgentAPI()
     return _api_instance
+    
