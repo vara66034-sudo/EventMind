@@ -13,8 +13,8 @@ const PageContainer = styled.div`
 
 // Блок событий (фиолетовый фон)
 const EventsSection = styled.section`
-  background: #2B124C;
-  padding: 60px 0;
+  background: #522B5B;
+  padding: 40px 0 60px 0;
   min-height: 60vh;
 `;
 

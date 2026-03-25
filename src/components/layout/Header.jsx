@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 import CitySelector from '../common/CitySelector';
 import SearchBar from '../common/SearchBar';
@@ -15,7 +16,7 @@ const HeaderContainer = styled.header`
 const Nav = styled.nav`
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 20px;
+  padding: 0 40px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -23,6 +24,7 @@ const Nav = styled.nav`
   
   @media (max-width: 768px) {
     flex-wrap: wrap;
+    padding: 0 20px;
     gap: 15px;
   }
 `;
@@ -39,7 +41,7 @@ const RightSection = styled.div`
   gap: 15px;
 `;
 
-const AuthButton = styled.a`
+const ProfileLink = styled(Link)`
   color: #FFFFFF;
   text-decoration: none;
   font-size: 14px;
@@ -53,6 +55,10 @@ const AuthButton = styled.a`
   }
 `;
 
+const Divider = styled.span`
+  color: #512A59;
+`;
+
 const Header = () => {
   return (
     <HeaderContainer>
@@ -62,9 +68,11 @@ const Header = () => {
           <SearchBar />
         </LeftSection>
         <RightSection>
-          <AuthButton href="/login">Войти</AuthButton>
-          <span style={{ color: '#512A59' }}>/</span>
-          <AuthButton href="/register">Регистрация</AuthButton>
+          <ProfileLink to="/">События</ProfileLink>
+          <Divider>/</Divider>
+          <ProfileLink to="/profile">Мой профиль</ProfileLink>
+          <Divider>/</Divider>
+          <ProfileLink to="/login">Войти</ProfileLink>
         </RightSection>
       </Nav>
     </HeaderContainer>
