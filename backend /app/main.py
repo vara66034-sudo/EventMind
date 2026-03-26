@@ -7,6 +7,10 @@ import logging
 
 from eventmind_agent.core.api import get_api
 from eventmind_agent.notifications.ics_generator import get_ics_generator
+from eventmind_agent.core.agent_core import get_agent
+
+
+get_agent(config_path="config/agent_config.json")
 
 app = FastAPI(title="EventMind API")
 
