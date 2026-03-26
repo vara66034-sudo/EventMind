@@ -12,12 +12,12 @@ app = FastAPI(title="EventMind API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # для разработки, в продакшене ограничить
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------- МОДЕЛИ ДАННЫХ ----------
+# ---------- МОДЕЛИ ----------
 class AuthRequest(BaseModel):
     action: str
     email: Optional[str] = None
@@ -43,7 +43,7 @@ class UpdateProfileRequest(BaseModel):
 class RegisterEventRequest(BaseModel):
     user_id: int
 
-# ---------- ЕДИНЫЙ ЭНДПОИНТ (для расписания, рекомендаций и т.д.) ----------
+# ---------- ЕДИНЫЙ ЭНДПОИНТ (для расписания и рекомендаций) ----------
 @app.post("/api/auth")
 async def auth_handler(request: AuthRequest):
     api = get_api()
@@ -68,7 +68,7 @@ async def logout(token: str = Query(...)):
 @app.get("/api/auth/me")
 async def get_current_user(token: str = Query(...)):
     api = get_api()
-    return api.get_current_user(token)   # пока заглушка, можно доработать
+    return api.get_current_user(token)
 
 # ---------- СОБЫТИЯ ----------
 @app.get("/api/events")
@@ -89,17 +89,15 @@ async def get_event(event_id: int):
 @app.post("/api/events/{event_id}/register")
 async def register_event(event_id: int, request: RegisterEventRequest):
     api = get_api()
-    # Записываем взаимодействие (регистрация) для истории
     api.recommender.record_interaction(
         user_id=request.user_id,
         event_id=event_id,
         interaction_type='register',
         tags=None
     )
-    # В реальной системе здесь нужно создавать запись в Odoo event.registration
     return {"success": True, "message": "Registered successfully"}
 
-# ---------- ЭКСПОРТ В КАЛЕНДАРЬ (.ics) ----------
+# ---------- ICS ----------
 @app.get("/event/{event_id}/ics")
 async def download_ics(event_id: int):
     api = get_api()
@@ -118,8 +116,8 @@ async def download_ics(event_id: int):
 # ---------- ПОЛЬЗОВАТЕЛЬ ----------
 @app.get("/api/user/profile")
 async def get_profile(user_id: int = Query(...)):
-    # Заглушка – можно будет реализовать получение из Odoo
-    return {"success": True, "data": {"name": "User", "email": "user@example.com", "phone": ""}}
+    api = get_api()
+    return api.get_user_profile(user_id)   # используем новый метод
 
 @app.put("/api/user/profile")
 async def update_profile(request: UpdateProfileRequest, user_id: int = Query(...)):
@@ -128,7 +126,6 @@ async def update_profile(request: UpdateProfileRequest, user_id: int = Query(...
 
 @app.get("/api/user/registrations")
 async def get_registrations(user_id: int = Query(...)):
-    # Заглушка – нужно будет получать регистрации из Odoo
     return {"success": True, "data": []}
 
 # ---------- ГОРОДА ----------
@@ -141,7 +138,7 @@ CITIES = [
 async def get_cities():
     return {"success": True, "data": CITIES}
 
-# ---------- УВЕДОМЛЕНИЯ (ЗАГЛУШКИ) ----------
+# ---------- УВЕДОМЛЕНИЯ ----------
 @app.post("/api/notifications/test")
 async def test_notification(registration_id: int):
     return {"success": True, "message": "Test notification sent"}
