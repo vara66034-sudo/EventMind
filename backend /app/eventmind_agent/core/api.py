@@ -10,7 +10,7 @@ import secrets
 from .agent_core import get_agent
 from .recommendations import get_recommender
 from scheduler.user_calendar import get_user_calendar, TimeSlot
-from .llm_service import get_llm_servic
+from .llm_service import get_llm_service   # исправлено имя
 
 logger = logging.getLogger('EventMind.API')
 
@@ -265,6 +265,7 @@ class AgentAPI:
         return {'success': True, 'message': 'Logged out successfully'}
 
     def get_current_user(self, token: str) -> Dict:
+        # Временная заглушка – можно реализовать проверку токена
         return {'success': False, 'error': 'Not implemented'}
 
     def update_user_profile(self, user_id: int, name: str = None, interests: List[str] = None) -> Dict:
@@ -273,9 +274,34 @@ class AgentAPI:
                 self.recommender.update_user_profile(user_id, interests)
                 calendar = get_user_calendar(user_id)
                 calendar.set_interests(interests)
+            # Обновление имени в Odoo можно добавить позже
             return {'success': True, 'message': 'Profile updated'}
         except Exception as e:
             logger.error(f"Update profile error: {e}")
+            return {'success': False, 'error': str(e)}
+
+    # -------------------- Профиль пользователя (новый метод) --------------------
+
+    def get_user_profile(self, user_id: int) -> Dict:
+        """Получить данные пользователя из Odoo (res.users)"""
+        try:
+            common = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/common")
+            uid = common.authenticate(self.odoo_db, self.odoo_admin, self.odoo_admin_pw, {})
+            if not uid:
+                return {'success': False, 'error': 'Cannot authenticate to Odoo'}
+
+            models = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/object")
+            user_data = models.execute_kw(
+                self.odoo_db, uid, self.odoo_admin_pw,
+                'res.users', 'read',
+                [user_id],
+                {'fields': ['id', 'name', 'login', 'email', 'partner_id']}
+            )
+            if user_data:
+                return {'success': True, 'data': user_data[0]}
+            return {'success': False, 'error': 'User not found'}
+        except Exception as e:
+            logger.error(f"Error fetching user profile: {e}")
             return {'success': False, 'error': str(e)}
 
     # -------------------- Расписание и рекомендации с учётом времени --------------------
@@ -305,14 +331,11 @@ class AgentAPI:
             logger.error(f"Error getting schedule: {e}")
             return {'success': False, 'error': str(e)}
 
-    def get_recommendations_with_schedule(self, user_id: int, limit: int = 10) -> Dict:
+    def get_recommendations_with_schedule(self, user_id: int, limit: int = 10, use_llm: bool = True) -> Dict:
         """
-        Возвращает рекомендации с учётом занятости пользователя.
-        Сначала получаем обычные рекомендации (с оценкой релевантности),
-        затем проверяем доступность времени и пересчитываем итоговую оценку.
+        Возвращает рекомендации с учётом занятости пользователя и генерирует сообщение от ИИ.
         """
         try:
-            # Загружаем события
             events = self._fetch_events_from_odoo()
             if not events:
                 return {'success': True, 'data': [], 'message': 'No events available'}
@@ -321,7 +344,7 @@ class AgentAPI:
             recs = self.recommender.get_recommendations(
                 user_id=user_id,
                 events=events,
-                limit=100,  # берём больше, чтобы потом отфильтровать
+                limit=100,
                 include_explanation=True
             )
 
@@ -332,7 +355,6 @@ class AgentAPI:
                 event = rec['event']
                 relevance = rec['score']
 
-                # Проверяем доступность
                 available = False
                 if event.get('date_begin'):
                     try:
@@ -342,9 +364,8 @@ class AgentAPI:
                         logger.error(f"Error parsing event date: {e}")
                         available = True
 
-                # Итоговая оценка: 60% релевантность, 40% доступность
                 final_score = relevance * 0.6 + (1.0 if available else 0.0) * 0.4
-                if final_score > 0:
+                if final_score > 0 and available:  # Берем только те, где есть свободное время
                     result = {
                         'event': event,
                         'score': final_score,
@@ -357,9 +378,20 @@ class AgentAPI:
                     scored.append(result)
 
             scored.sort(key=lambda x: -x['score'])
+            top_events = scored[:limit]
+
+            # >>> ИНТЕГРАЦИЯ GIGACHAT <<<
+            llm_message = None
+            if use_llm and top_events:
+                llm_service = get_llm_service()
+                user_interests = self.recommender._get_user_interests(user_id)
+                clean_events = [item['event'] for item in top_events[:3]]
+                llm_message = llm_service.generate_personal_advice(user_interests, clean_events)
+
             return {
                 'success': True,
-                'data': scored[:limit],
+                'data': top_events,
+                'ai_advice': llm_message,
                 'user_id': user_id
             }
         except Exception as e:
@@ -425,6 +457,11 @@ class AgentAPI:
                 name=request_data.get('name'),
                 interests=request_data.get('interests')
             )
+        # Профиль пользователя (добавлено)
+        elif action == 'get_profile':
+            return self.get_user_profile(
+                user_id=request_data.get('user_id')
+            )
         # Расписание
         elif action == 'add_busy_slot':
             return self.add_busy_slot(
@@ -439,86 +476,14 @@ class AgentAPI:
                 start_date=request_data.get('start_date', datetime.now().isoformat())
             )
         elif action == 'recommendations_with_schedule':
+            # используем метод с параметром use_llm (по умолчанию True)
             return self.get_recommendations_with_schedule(
                 user_id=request_data.get('user_id'),
-                limit=request_data.get('limit', 10)
+                limit=request_data.get('limit', 10),
+                use_llm=request_data.get('use_llm', True)
             )
         else:
             return {'success': False, 'error': f'Unknown action: {action}'}
-
-        # -------------------- Добавление LLM --------------------
-
-        def get_recommendations_with_schedule(self, user_id: int, limit: int = 10, use_llm: bool = True) -> Dict:
-        """
-        Возвращает рекомендации с учётом занятости пользователя и генерирует сообщение от ИИ.
-        """
-        try:
-            events = self._fetch_events_from_odoo()
-            if not events:
-                return {'success': True, 'data': [], 'message': 'No events available'}
-
-            # Ваш существующий код скоринга и проверки доступности...
-            recs = self.recommender.get_recommendations(
-                user_id=user_id,
-                events=events,
-                limit=100,
-                include_explanation=True
-            )
-
-            calendar = get_user_calendar(user_id)
-            scored = []
-
-            for rec in recs:
-                event = rec['event']
-                relevance = rec['score']
-
-                available = False
-                if event.get('date_begin'):
-                    try:
-                        event_date = datetime.fromisoformat(event['date_begin'].replace('Z', '+00:00'))
-                        available = calendar.is_available(event_date, duration_hours=2)
-                    except Exception as e:
-                        logger.error(f"Error parsing event date: {e}")
-                        available = True
-
-                final_score = relevance * 0.6 + (1.0 if available else 0.0) * 0.4
-                if final_score > 0 and available: # Берем только те, где реально есть время
-                    result = {
-                        'event': event,
-                        'score': final_score,
-                        'relevance_score': relevance,
-                        'available': available,
-                        'id': event.get('id')
-                    }
-                    if rec.get('explanation'):
-                        result['explanation'] = rec['explanation']
-                    scored.append(result)
-
-            scored.sort(key=lambda x: -x['score'])
-            top_events = scored[:limit]
-
-            # >>> ИНТЕГРАЦИЯ GIGACHAT <<<
-            llm_message = None
-            if use_llm and top_events:
-                llm_service = get_llm_service()
-                # Извлекаем интересы пользователя (у вас уже должен быть метод для этого)
-                user_interests = self.recommender._get_user_interests(user_id) 
-                
-                # Достаем "чистые" словари событий из результатов
-                clean_events = [item['event'] for item in top_events[:3]] # Берем топ-3 для LLM, чтобы не перегружать
-                
-                # Генерируем текст
-                llm_message = llm_service.generate_personal_advice(user_interests, clean_events)
-
-            return {
-                'success': True,
-                'data': top_events,
-                'ai_advice': llm_message, # Отдаем сгенерированный текст на фронтенд
-                'user_id': user_id
-            }
-        except Exception as e:
-            logger.error(f"Error in recommendations_with_schedule: {e}")
-            return {'success': False, 'error': str(e)}
 
 
 _api_instance = None
