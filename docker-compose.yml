@@ -28,15 +28,15 @@ services:
   #     - ./:/mnt/extra-addons/EventMind
   #   restart: unless-stopped
 
-  odoo:
+  backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
     depends_on:
       - db
-    container_name: teamEventMind2-odoo
+    container_name: teamEventMind2-backend
     ports:
-      - "8075:8069"
+      - "8000:8000"
     restart: unless-stopped
 
 volumes:
@@ -45,4 +45,4 @@ volumes:
 
 networks:
   default:
-    name: teamEventMind2_network1
+    name: teamEventMind2_network
