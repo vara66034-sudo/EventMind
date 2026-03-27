@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .agent.core.api import get_api
 
@@ -15,6 +17,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+class SPAStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        try:
+            response = await super().get_response(path, scope)
+            if response.status_code == 404:
+                return await super().get_response("index.html", scope)
+            return response
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
 
 class AuthRequest(BaseModel):
     action: str
@@ -30,4 +44,6 @@ async def auth_handler(request: AuthRequest):
     api = get_api()
     return api.handle_request(request.dict())
 
-app.mount("/", StaticFiles(directory="../frontend/build", html=True), name="static")
+frontend_build_dir = Path(__file__).resolve().parents[2] / "frontend" / "build"
+
+app.mount("/", SPAStaticFiles(directory=str(frontend_build_dir), html=True), name="spa")
