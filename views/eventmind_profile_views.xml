@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <record id="view_eventmind_profile_tree" model="ir.ui.view">
-        <field name="name">eventmind.profile.tree</field>
+    <record id="view_eventmind_profile_list" model="ir.ui.view">
+        <field name="name">eventmind.profile.list</field>
         <field name="model">eventmind.profile</field>
         <field name="arch" type="xml">
-            <tree string="EventMind Profiles">
+            <list string="EventMind Profiles">
                 <field name="name"/>
                 <field name="user_id"/>
                 <field name="interests"/>
                 <field name="active"/>
-            </tree>
+            </list>
         </field>
     </record>
 
@@ -38,10 +38,9 @@
     <record id="action_eventmind_profile" model="ir.actions.act_window">
         <field name="name">Profiles</field>
         <field name="res_model">eventmind.profile</field>
-        <field name="view_mode">tree,form</field>
+        <field name="view_mode">list,form</field>
     </record>
 
     <menuitem id="menu_eventmind_root" name="EventMind" sequence="10"/>
     <menuitem id="menu_eventmind_profiles" name="Profiles" parent="menu_eventmind_root" action="action_eventmind_profile" sequence="20"/>
 </odoo>
-
