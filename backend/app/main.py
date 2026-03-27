@@ -45,7 +45,7 @@ async def auth_handler(request: AuthRequest):
     return api.handle_request(request.dict())
 
 
-@app.post("/api/events")
+@app.get("/api/events")
 async def auth_handler(request: AuthRequest):
     api = get_api()
     return api.handle_request(request.dict())
