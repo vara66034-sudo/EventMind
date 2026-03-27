@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_eventmind_profile_user,eventmind.profile.user,model_eventmind_profile,base.group_user,1,1,1,0
+access_eventmind_profile_admin,eventmind.profile.admin,model_eventmind_profile,base.group_system,1,1,1,1
+access_eventmind_profile_portal,eventmind.profile.portal,model_eventmind_profile,base.group_portal,1,1,1,0
+access_eventmind_profile_public,eventmind.profile.public,model_eventmind_profile,base.group_public,1,1,1,0

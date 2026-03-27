@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_eventmind_profile_tree" model="ir.ui.view">
+        <field name="name">eventmind.profile.tree</field>
+        <field name="model">eventmind.profile</field>
+        <field name="arch" type="xml">
+            <tree string="EventMind Profiles">
+                <field name="name"/>
+                <field name="user_id"/>
+                <field name="interests"/>
+                <field name="active"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_eventmind_profile_form" model="ir.ui.view">
+        <field name="name">eventmind.profile.form</field>
+        <field name="model">eventmind.profile</field>
+        <field name="arch" type="xml">
+            <form string="EventMind Profile">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="user_id"/>
+                        <field name="active"/>
+                    </group>
+                    <group>
+                        <field name="interests"/>
+                    </group>
+                    <group>
+                        <field name="notes"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_eventmind_profile" model="ir.actions.act_window">
+        <field name="name">Profiles</field>
+        <field name="res_model">eventmind.profile</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+
+    <menuitem id="menu_eventmind_root" name="EventMind" sequence="10"/>
+    <menuitem id="menu_eventmind_profiles" name="Profiles" parent="menu_eventmind_root" action="action_eventmind_profile" sequence="20"/>
+</odoo>
+
