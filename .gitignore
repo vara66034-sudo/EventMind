@@ -25,3 +25,4 @@ Thumbs.db
 # Временные файлы
 *.tmp
 *.temp
+*.pyc
