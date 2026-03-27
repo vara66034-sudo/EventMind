@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from fastapi.staticfiles import StaticFiles
 
-from agent.core.api import get_api
+from .agent.core.api import get_api
 
 app = FastAPI(title="EventMind API")
 

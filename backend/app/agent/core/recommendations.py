@@ -5,7 +5,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 from collections import defaultdict
 
-from scheduler.user_calendar import get_user_calendar
+from ..scheduler.user_calendar import get_user_calendar
 
 logger = logging.getLogger('EventMind.Recommender')
 

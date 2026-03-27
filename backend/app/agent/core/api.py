@@ -9,8 +9,8 @@ import secrets
 
 from .agent_core import get_agent
 from .recommendations import get_recommender
-from scheduler.user_calendar import get_user_calendar, TimeSlot
-from .llm_service import get_llm_servic
+from ..scheduler.user_calendar import get_user_calendar, TimeSlot
+from .llm_service import get_llm_service
 
 logger = logging.getLogger('EventMind.API')
 

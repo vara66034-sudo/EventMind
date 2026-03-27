@@ -1,9 +1,9 @@
 from typing import Dict, Any
 import logging
 
-from tagging.nlp_processor import clean_text
-from tagging.tagger import Tagger
-from tagging.embeddings import Embedder
+from .nlp_processor import clean_text
+from .tagger import Tagger
+from .embeddings import Embedder
 
 
 logger = logging.getLogger(__name__)
