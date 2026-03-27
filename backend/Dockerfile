@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
 COPY backend /app/backend
 COPY config /app/config
+COPY frontend/build /frontend/build
 
 WORKDIR /app/backend
 
