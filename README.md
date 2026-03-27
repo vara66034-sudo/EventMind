@@ -22,17 +22,18 @@
 ---
 
 ### Технологический стек
-
 | Компонент | Технологии |
 |-----------|------------|
-| **Платформа** | Odoo  + PostgreSQL |
-| **Бэкенд (кастомные модули)** | Python 3.10+, Odoo ORM, XML-RPC/JSON-RPC |
-| **Рекомендации** | scikit-learn (TfidfVectorizer, cosine_similarity) |
-| **Автотегирование** | KeyBERT, spaCy, sentence-transformers |
-| **Парсеры** | Python (requests, BeautifulSoup), VK API, TimePad API, GitHub Actions (cron) |
-| **Фронтенд** | React + Vite + Tailwind CSS |
-| **Уведомления** | Web Push API, email (SMTP) |
-| **Инфраструктура** | Docker, docker-compose, GitHub Actions (CI/CD) |
+| **Бэкенд API** | FastAPI, Python 3.10+ |
+| **Платформа данных** | Odoo + PostgreSQL |
+| **Рекомендации** | Jaccard similarity + GigaChat (Function Calling) |
+| **Автотегирование** | KeyBERT, Sentence‑Transformers (paraphrase-multilingual-MiniLM-L12-v2) |
+| **Парсеры** | Python (requests), VK API, TimePad API, GitHub Actions (cron) |
+| **Фронтенд** | React 18, JavaScript, Axios, Tailwind CSS |
+| **Уведомления** | Email (SMTP), .ics генерация |
+| **LLM (ИИ-агент)** | GigaChat (российская LLM, бесплатный API) |
+| **Инфраструктура** | Docker, docker-compose, GitHub Actions, Railway/Vercel |
+| **Расписание** | In-memory кэш (UserCalendar) |
 
 ---
 
