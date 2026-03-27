@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
-from fastapi.staticfiles import StaticFiles
+# from fastapi.staticfiles import StaticFiles
 
 from .agent.core.api import get_api
 
@@ -30,4 +30,4 @@ async def auth_handler(request: AuthRequest):
     api = get_api()
     return api.handle_request(request.dict())
 
-app.mount("/", StaticFiles(directory="../frontend/build", html=True), name="static")
+# app.mount("/", StaticFiles(directory="../frontend/build", html=True), name="static")
