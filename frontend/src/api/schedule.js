@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || '/';
+const API_URL = '';
 
 // Получить токен (из localStorage или authAPI)
 const getToken = () => localStorage.getItem('token');
