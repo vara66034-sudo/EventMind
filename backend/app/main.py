@@ -44,6 +44,12 @@ async def auth_handler(request: AuthRequest):
     api = get_api()
     return api.handle_request(request.dict())
 
+
+@app.post("/api/events")
+async def auth_handler(request: AuthRequest):
+    api = get_api()
+    return api.handle_request(request.dict())
+
 frontend_build_dir = Path(__file__).resolve().parents[2] / "frontend" / "build"
 
 app.mount("/", SPAStaticFiles(directory=str(frontend_build_dir), html=True), name="spa")
