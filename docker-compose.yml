@@ -36,7 +36,7 @@ services:
       - db
     container_name: teamEventMind2-odoo
     ports:
-      - "8000:8069"
+      - "8075:8069"
     restart: unless-stopped
 
 volumes:
