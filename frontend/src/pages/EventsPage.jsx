@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import styled from 'styled-components';
 import EventCard from '../components/events/EventCard';
 import Calendar from '../components/events/Calendar';
@@ -80,12 +80,14 @@ const ErrorMessage = styled.div`
 const EventsPage = () => {
   const [activeType, setActiveType] = useState('Все мероприятия');
   const [selectedCity, setSelectedCity] = useState(null);
+
+  const data = useMemo(() => ({
+        city: selectedCity,
+    type: activeType !== 'Все мероприятия' ? activeType : null,
+  }),[selectedCity, activeType])
   
   // Используем хук для загрузки событий с API
-  const { events, loading, error } = useEvents({
-    city: selectedCity,
-    type: activeType !== 'Все мероприятия' ? activeType : null,
-  });
+  const { events, loading, error } = useEvents(data);
 
   const handleTypeChange = (type) => {
     setActiveType(type);
