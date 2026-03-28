@@ -117,12 +117,12 @@ const EventDetailPage = () => {
     // Моковые данные (потом заменим на API)
     setEvent({
       id: parseInt(id),
-      name: 'Концерт любимой группы',
-      date_begin: '2024-04-15 19:00:00',
       date_end: '2024-04-15 22:00:00',
-      location: 'Москва, Крокус Сити Холл',
       description: 'Это будет незабываемый вечер с вашей любимой группой! Живая музыка, световое шоу и отличная атмосфера. Не пропустите!',
-      image: "https://i.ytimg.com/vi/TggWGrkaXg4/maxresdefault.jpg?sqp=-oaymwEmCIAKENAF8quKqQMa8AEB-AH-CYAC0AWKAgwIABABGC4gSSh_MA8=&rs=AOn4CLCIhRkLoiPgkzR01KdUMGOtQvrNqA",
+      name: 'EventMind AI Hackathon 2026',
+      date_begin: '2026-05-20 10:00:00',
+      location: 'Екатеринбург, Технопарк',
+      image: 'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=800'
     });
   }, [id]);
 
