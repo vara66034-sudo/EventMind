@@ -122,7 +122,7 @@ const EventDetailPage = () => {
       date_end: '2024-04-15 22:00:00',
       location: 'Москва, Крокус Сити Холл',
       description: 'Это будет незабываемый вечер с вашей любимой группой! Живая музыка, световое шоу и отличная атмосфера. Не пропустите!',
-      image: null,
+      image: "https://i.ytimg.com/vi/TggWGrkaXg4/maxresdefault.jpg?sqp=-oaymwEmCIAKENAF8quKqQMa8AEB-AH-CYAC0AWKAgwIABABGC4gSSh_MA8=&rs=AOn4CLCIhRkLoiPgkzR01KdUMGOtQvrNqA",
     });
   }, [id]);
 
