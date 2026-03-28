@@ -123,28 +123,28 @@ const EventsPage = () => {
       name: 'Концерт любимой группы',
       date_begin: '2024-04-15 19:00:00',
       location: 'Москва, Крокус Сити Холл',
-      image: null,
+      image: "https://i.ytimg.com/vi/TggWGrkaXg4/maxresdefault.jpg?sqp=-oaymwEmCIAKENAF8quKqQMa8AEB-AH-CYAC0AWKAgwIABABGC4gSSh_MA8=&rs=AOn4CLCIhRkLoiPgkzR01KdUMGOtQvrNqA",
     },
     {
       id: 2,
       name: 'Мастер-класс по фотографии',
       date_begin: '2024-04-20 14:00:00',
       location: 'Санкт-Петербург, Лофт Проект Этажи',
-      image: null,
+      image: "https://avatars.mds.yandex.net/get-vertis-journal/4212087/IMG_2922.webp_1723909471198/orig",
     },
     {
       id: 3,
       name: 'IT Конференция 2024',
       date_begin: '2024-05-01 10:00:00',
       location: 'Онлайн',
-      image: null,
+      image: "https://avatars.mds.yandex.net/i?id=ddc8aecec77d15591bb6d2518efc62bd_l-5268915-images-thumbs&n=13",
     },
     {
       id: 4,
       name: 'Джазовый вечер',
       date_begin: '2024-04-18 20:00:00',
       location: 'Екатеринбург',
-      image: null,
+      image: "https://avatars.mds.yandex.net/get-afishanew/5098259/a95faf50c562e9510cbef1b5b0129dd2/960x690_noncrop",
     },
   ];
 
