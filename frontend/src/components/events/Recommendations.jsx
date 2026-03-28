@@ -44,31 +44,31 @@ const Grid = styled.div`
 const recommendedEvents = [
   {
     id: 101,
-    name: 'Джазовый вечер',
+    name: 'ИТ-Конференция',
     date_begin: '2024-04-18 20:00:00',
     location: 'Москва',
-    image: "https://avatars.mds.yandex.net/get-afishanew/5098259/a95faf50c562e9510cbef1b5b0129dd2/960x690_noncrop",
+    image: "https://it-elements.ru/images/tild6333-3332-4531-a238-643733316137__rectangle_167_1.jpg",
   },
   {
     id: 102,
-    name: 'Стендап шоу',
+    name: 'ЕКОД',
     date_begin: '2024-04-22 19:00:00',
     location: 'Санкт-Петербург',
-    image: "https://avatars.mds.yandex.net/get-tv-shows/27487/2a00000197ac73efa20894ade83f2626fd18/640x640",
+    image: "https://www.sostav.ru/images/news/2024/10/28/8hmzdk0w.jpg",
   },
   {
     id: 103,
-    name: 'Арт-выставка',
+    name: 'Dev.by',
     date_begin: '2024-04-25 11:00:00',
     location: 'Екатеринбург',
-    image: "https://avatars.mds.yandex.net/i?id=7d13bebc6a28f52ffbf9b403dcec97c7_l-5906493-images-thumbs&n=13",
+    image: "https://avatars.mds.yandex.net/i?id=915530a742b985ef93a5b7561b5c5803_l-4353628-images-thumbs&n=13",
   },
   {
     id: 104,
-    name: 'Кулинарный мастер-класс',
+    name: 'ГеймДев',
     date_begin: '2024-04-28 15:00:00',
     location: 'Казань',
-    image: "https://pro-interactive.ru/netcat_files/generated/44/160/400x400/43339/210104/7cbcf5a1a645993425c173118d0bced5.jpg?crop=0%3A0%3A0%3A0&hash=5be2b729d20d97f6cc0fe0861b6a7318&resize_mode=1&wm_m=0",
+    image: "https://cdn.tvspb.ru/storage/wp-content/uploads/2025/11/montazh.00_05_41_05.still381.jpg__0_0x0.jpg",
   },
 ];
 
