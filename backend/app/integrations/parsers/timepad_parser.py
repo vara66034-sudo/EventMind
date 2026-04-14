@@ -3,13 +3,19 @@ import psycopg2
 import html
 import re
 import time
+import os
+from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import requests
 
+load_dotenv()
+
 TIMEPAD_API_URL = "https://api.timepad.ru/v1/events.json"
-TIMEPAD_TOKEN = "fbf148c84bdcf452d12fc82054cffdacd7a26479"
+TIMEPAD_TOKEN = os.getenv("TIMEPAD_TOKEN")
+if not TIMEPAD_TOKEN:
+    raise RuntimeError("TIMEPAD_TOKEN не найден в .env")
 
 CITY = "Екатеринбург"
 LIMIT = 100
@@ -17,7 +23,6 @@ DAYS_AHEAD = 365
 
 ORGANIZATION_IDS: List[int] = []
 
-# Сильные IT-маркеры: если найден хотя бы один — событие почти точно IT
 STRONG_IT = [
     "разработк", "developer", "разработчик", "разработчиков",
     "frontend", "backend", "fullstack",
@@ -36,13 +41,11 @@ STRONG_IT = [
     "код", "code",
 ]
 
-# Слабые маркеры: сами по себе могут давать мусор
 WEAK_IT = [
     "ии", "искусственный интеллект", "нейросет", "deepseek",
     "цифров", "технолог", "алгоритм", "автоматизац",
 ]
 
-# Явно плохой контекст: если он есть, событие режется
 BAD_CONTEXT = [
     "театр", "драматург", "сказк", "квест", "кино", "фильм",
     "музык", "концерт", "оркестр", "хор",
@@ -57,7 +60,6 @@ BAD_CONTEXT = [
     "урал драматург", "драматургии",
 ]
 
-# Доверенные IT-организаторы
 TRUSTED_IT_ORGS = [
     "coffeecode-event.timepad.ru",
 ]
@@ -240,46 +242,113 @@ def looks_like_it_event(event: Dict[str, Any]) -> bool:
     return False
 
 def get_db_connection():
-    return psycopg2.connect(
-        dbname="eventmind",
-        user="postgres",
-        password="kokos2007",
-        host="localhost",
-        port="5432"
-    )
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL не найден в .env")
+    return psycopg2.connect(database_url)
 
 def save_events_to_db(events: List[Dict[str, Any]]) -> None:
-    conn = get_db_connection()
+    saved_count = 0
+
+    def open_conn():
+        return get_db_connection()
+
+    conn = open_conn()
     cur = conn.cursor()
 
     for event in events:
-        cur.execute("""
-            INSERT INTO events (
-                title,
-                event_date,
-                description,
-                location,
-                source,
-                source_url,
-                image_url,
-                raw_description
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (source_url) DO NOTHING
-        """, (
-            event["title"],
-            event["event_date"],
-            event["description"],
-            event["location"],
-            event["source"],
-            event["source_url"],
-            event["image_url"],
-            event["raw_description"]
-        ))
+        try:
+            cur.execute("""
+                INSERT INTO events (
+                    title,
+                    event_date,
+                    description,
+                    location,
+                    source,
+                    source_url,
+                    image_url,
+                    raw_description
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (source_url) DO NOTHING
+            """, (
+                event["title"][:255] if event["title"] else None,
+                event["event_date"],
+                event["description"][:5000] if event["description"] else None,
+                event["location"][:255] if event["location"] else None,
+                event["source"],
+                event["source_url"],
+                event["image_url"],
+                event["raw_description"][:10000] if event["raw_description"] else None,
+            ))
 
-    conn.commit()
-    cur.close()
-    conn.close()
+            conn.commit()
+            saved_count += 1
+
+            if saved_count % 20 == 0:
+                print(f"Сохранено в БД: {saved_count}")
+
+        except Exception as e:
+            print(f"Ошибка при сохранении события: {event.get('title')}")
+            print(e)
+
+            try:
+                if conn and not conn.closed:
+                    conn.rollback()
+                    cur.close()
+                    conn.close()
+            except Exception:
+                pass
+
+            try:
+                conn = open_conn()
+                cur = conn.cursor()
+
+                cur.execute("""
+                    INSERT INTO events (
+                        title,
+                        event_date,
+                        description,
+                        location,
+                        source,
+                        source_url,
+                        image_url,
+                        raw_description
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (source_url) DO NOTHING
+                """, (
+                    event["title"][:255] if event["title"] else None,
+                    event["event_date"],
+                    event["description"][:5000] if event["description"] else None,
+                    event["location"][:255] if event["location"] else None,
+                    event["source"],
+                    event["source_url"],
+                    event["image_url"],
+                    event["raw_description"][:10000] if event["raw_description"] else None,
+                ))
+
+                conn.commit()
+                saved_count += 1
+                print("Повторное сохранение прошло успешно")
+
+            except Exception as retry_error:
+                print("Повторное сохранение тоже не удалось:")
+                print(retry_error)
+
+    try:
+        if cur and not cur.closed:
+            cur.close()
+    except Exception:
+        pass
+
+    try:
+        if conn and not conn.closed:
+            conn.close()
+    except Exception:
+        pass
+
+    print(f"Всего сохранено в БД: {saved_count}")
 
 def main() -> None:
     if TIMEPAD_TOKEN == "ТВОЙ_TIMEPAD_TOKEN":
@@ -295,6 +364,7 @@ def main() -> None:
     )
 
     normalized_events: List[Dict[str, Any]] = []
+    save_events_to_db(normalized_events)
 
     for raw_event in raw_events:
         event = normalize_timepad_event(raw_event)
