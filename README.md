@@ -33,7 +33,7 @@
 | **Уведомления** | Email (SMTP), .ics генерация |
 | **LLM (ИИ-агент)** | GigaChat (российская LLM, бесплатный API) |
 | **Инфраструктура** | Docker, docker-compose, GitHub Actions, Railway/Vercel |
-| **Расписание** | In-memory кэш (UserCalendar) |
+| **Расписание** | PostgreSQL (UserCalendar) |
 
 ---
 
