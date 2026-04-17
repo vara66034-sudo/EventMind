@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "ml", "artifacts", "event_classifier.joblib")
+MODEL_PATH = os.path.join("backend", "ml", "artifacts", "event_classifier.joblib")
 
 VK_TOKEN = os.getenv("VK_TOKEN")
 VK_API_VERSION = "5.199"
