@@ -36,11 +36,11 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SAVE_TO_DB: "true"
         run: |
-          python vk_parser.py
+          python backend/app/integrations/parsers/vk_parser.py
 
       - name: Run TimePad parser
         env:
           TIMEPAD_TOKEN: ${{ secrets.TIMEPAD_TOKEN }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          python TimePad_parser.py
+          python backend/app/integrations/parsers/timepad_parser.py
