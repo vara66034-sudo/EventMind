@@ -28,7 +28,7 @@ jobs:
 
       - name: Check model file exists
         run: |
-          test -f ml/artifacts/event_classifier.joblib
+          test -f backend/ml/artifacts/event_classifier.joblib
 
       - name: Run VK parser
         env:
