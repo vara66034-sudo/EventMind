@@ -1,0 +1,46 @@
+name: Run event parsers
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * *"   # каждый день в 05:00 UTC
+
+jobs:
+  parse-events:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas scikit-learn joblib psycopg2-binary python-dotenv requests
+
+      - name: Check model file exists
+        run: |
+          test -f ml/artifacts/event_classifier.joblib
+
+      - name: Run VK parser
+        env:
+          VK_TOKEN: ${{ secrets.VK_TOKEN }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SAVE_TO_DB: "true"
+        run: |
+          python vk_parser.py
+
+      - name: Run TimePad parser
+        env:
+          TIMEPAD_TOKEN: ${{ secrets.TIMEPAD_TOKEN }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python TimePad_parser.py
