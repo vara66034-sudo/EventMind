@@ -12,10 +12,10 @@ import requests
 
 load_dotenv()
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 TIMEPAD_API_URL = "https://api.timepad.ru/v1/events.json"
 TIMEPAD_TOKEN = os.getenv("TIMEPAD_TOKEN")
-if not TIMEPAD_TOKEN:
-    raise RuntimeError("TIMEPAD_TOKEN не найден")
 
 CITY = "Екатеринбург"
 LIMIT = 100
@@ -121,6 +121,12 @@ def fetch_timepad_events(
     starts_at_min = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     starts_at_max = (datetime.now(timezone.utc) + timedelta(days=days_ahead)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    session = requests.Session()
+    session.headers.update({
+        "Accept": "application/json",
+        "User-Agent": "EventMind/1.0 (+server-side parser)",
+    })
+
     while True:
         params = {
             "limit": limit,
@@ -135,15 +141,10 @@ def fetch_timepad_events(
         if organization_ids:
             params["organization_ids"] = ",".join(str(x) for x in organization_ids)
 
-        response = requests.get(
+        response = session.get(
             TIMEPAD_API_URL,
             params=params,
             timeout=30,
-            headers={
-                "Authorization": f"Bearer {TIMEPAD_TOKEN}",
-                "Accept": "application/json",
-                "User-Agent": "Mozilla/5.0",
-            },
         )
 
         print("DEBUG URL:", response.url)
@@ -351,8 +352,6 @@ def save_events_to_db(events: List[Dict[str, Any]]) -> None:
     print(f"Всего сохранено в БД: {saved_count}")
 
 def main() -> None:
-    if TIMEPAD_TOKEN == "ТВОЙ_TIMEPAD_TOKEN":
-        raise RuntimeError("Вставь TIMEPAD_TOKEN в переменную TIMEPAD_TOKEN")
 
     print("Получаю события из TimePad...")
 
@@ -364,7 +363,6 @@ def main() -> None:
     )
 
     normalized_events: List[Dict[str, Any]] = []
-    save_events_to_db(normalized_events)
 
     for raw_event in raw_events:
         event = normalize_timepad_event(raw_event)
@@ -378,13 +376,14 @@ def main() -> None:
 
         normalized_events.append(event)
 
-    with open("timepad_events.json", "w", encoding="utf-8") as f:
+    output_path = os.path.join(BASE_DIR, "timepad_events.json")
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(normalized_events, f, ensure_ascii=False, indent=2)
 
     save_events_to_db(normalized_events)
 
     print(f"Готово. Сохранено событий: {len(normalized_events)}")
-    print("Файл: timepad_events.json")
+    print(f"Файл: {output_path}")
     print("События TimePad сохранены в PostgreSQL")
 
 
