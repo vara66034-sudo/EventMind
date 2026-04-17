@@ -15,7 +15,7 @@ load_dotenv()
 TIMEPAD_API_URL = "https://api.timepad.ru/v1/events.json"
 TIMEPAD_TOKEN = os.getenv("TIMEPAD_TOKEN")
 if not TIMEPAD_TOKEN:
-    raise RuntimeError("TIMEPAD_TOKEN не найден в .env")
+    raise RuntimeError("TIMEPAD_TOKEN не найден")
 
 CITY = "Екатеринбург"
 LIMIT = 100
