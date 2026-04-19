@@ -1,16 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 import TypeFilters from '../components/events/TypeFilters';
-import scheduleAPI from '../api/schedule';
+import { scheduleAPI, userAPI } from '../services/api';
+import { AVAILABLE_TAGS } from '../constants/tags';
 
-// Основной контейнер
 const PageContainer = styled.div`
   min-height: 100vh;
   background: #FFFFFF;
 `;
 
-// Фиолетовая шапка профиля
 const ProfileHeader = styled.div`
   background: #512A59;
   padding: 40px 40px 0 40px;
@@ -32,7 +31,6 @@ const ContentWrapper = styled.div`
   }
 `;
 
-// Верхняя часть профиля
 const ProfileTop = styled.div`
   position: relative;
   display: flex;
@@ -46,7 +44,6 @@ const ProfileTop = styled.div`
   }
 `;
 
-// Левая колонка (информация о пользователе)
 const ProfileInfo = styled.div`
   position: relative;
   width: 400px;
@@ -69,7 +66,6 @@ const ProfileInfo = styled.div`
   }
 `;
 
-// Аватар
 const Avatar = styled.div`
   width: 120px;
   height: 120px;
@@ -117,7 +113,6 @@ const EditButton = styled(Link)`
   }
 `;
 
-// Правая колонка (календарь)
 const ProfileCalendar = styled.div`
   flex: 1;
   background: #512A59;
@@ -134,7 +129,6 @@ const ProfileCalendar = styled.div`
   }
 `;
 
-// Календарь
 const CalendarMonth = styled.div`
   width: 100%;
 `;
@@ -195,7 +189,7 @@ const WeekDay = styled.div`
 const DaysGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 50px;
+  gap: 10px;
 `;
 
 const Day = styled.div`
@@ -209,6 +203,7 @@ const Day = styled.div`
   cursor: pointer;
   transition: all 0.2s ease;
   position: relative;
+  border-radius: 50%;
   
   ${({ isEmpty }) =>
     isEmpty &&
@@ -221,15 +216,13 @@ const Day = styled.div`
     isToday &&
     `
     border: 2px solid #180018;
-    border-radius: 50%;
     font-weight: 700;
   `}
   
   ${({ isSelected }) =>
     isSelected &&
     `
-    border: 2px solid #180018;
-    border-radius: 50%;
+    background: #FFFFFF;
     font-weight: 700;
   `}
   
@@ -237,20 +230,17 @@ const Day = styled.div`
     isBusy &&
     `
     border: 2px solid #854E6B;
-    border-radius: 50%;
-    font-weight: 700;
-    background: rgba(133, 78, 107, 0.1);
+    background: rgba(133, 78, 107, 0.15);
+    font-weight: 600;
   `}
   
   &:hover {
-    ${({ hasEvent }) => !hasEvent && `
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 50%;
+    ${({ isEmpty }) => !isEmpty && `
+      background: rgba(255, 255, 255, 0.15);
     `}
   }
 `;
 
-// Белый блок с интересами и рекомендациями
 const WhiteSection = styled.div`
   background: #FFFFFF;
   padding: 40px;
@@ -275,7 +265,30 @@ const SectionTitle = styled.h2`
   font-weight: 700;
 `;
 
-// Интересы
+const TabContainer = styled.div`
+  display: flex;
+  gap: 20px;
+  margin-bottom: 30px;
+  border-bottom: 2px solid #D9D9D9;
+`;
+
+const TabButton = styled.button`
+  padding: 12px 24px;
+  background: transparent;
+  color: #512A59;
+  border: none;
+  border-bottom: ${({ isActive }) => isActive ? '3px solid #854E6B' : '3px solid transparent'};
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-bottom: -2px;
+  
+  &:hover {
+    color: #854E6B;
+  }
+`;
+
 const InterestsGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -318,7 +331,6 @@ const AddInterestButton = styled.button`
   }
 `;
 
-// Рекомендации
 const RecommendationsGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -337,7 +349,6 @@ const RecommendationCard = styled.div`
   }
 `;
 
-// Загрузка
 const Loader = styled.div`
   text-align: center;
   padding: 60px;
@@ -345,7 +356,6 @@ const Loader = styled.div`
   font-size: 20px;
 `;
 
-// Модальное окно для добавления события
 const ModalOverlay = styled.div`
   position: fixed;
   top: 0;
@@ -363,13 +373,15 @@ const Modal = styled.div`
   background: #FFFFFF;
   border-radius: 24px;
   padding: 30px;
-  max-width: 400px;
+  max-width: 500px;
   width: 90%;
   color: #180018;
+  max-height: 85vh;
+  overflow-y: auto;
 `;
 
 const ModalTitle = styled.h3`
-  margin: 0 0 20px 0;
+  margin: 0 0 15px 0;
   font-size: 20px;
   color: #180018;
 `;
@@ -378,6 +390,9 @@ const ModalForm = styled.form`
   display: flex;
   flex-direction: column;
   gap: 15px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #D9D9D9;
 `;
 
 const ModalInput = styled.input`
@@ -414,21 +429,113 @@ const ModalButton = styled.button`
   }
 `;
 
-// Список событий дня
-const DayEvents = styled.div`
-  margin-top: 8px;
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 8px;
-  font-size: 11px;
-  color: #512A59;
-  max-width: 100%;
-  text-align: center;
+const EventList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
 `;
 
-const EventItem = styled.div`
-  margin: 2px 0;
-  font-weight: 500;
+const EventListItem = styled.div`
+  background: #FBE4D8;
+  padding: 12px 15px;
+  border-radius: 12px;
+  font-size: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+`;
+
+const EmptyState = styled.div`
+  text-align: center;
+  padding: 80px 20px;
+  color: #512A59;
+`;
+
+const EmptyIcon = styled.div`
+  font-size: 64px;
+  margin-bottom: 20px;
+  opacity: 0.5;
+`;
+
+const EmptyText = styled.p`
+  font-size: 18px;
+  margin: 0 0 10px 0;
+  color: #180018;
+  font-weight: 600;
+`;
+
+const EmptySubtext = styled.p`
+  font-size: 14px;
+  color: #854E6B;
+  margin: 0;
+`;
+
+const FavoritesGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+`;
+
+const FavoriteCard = styled.div`
+  background: #FBE4D8;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease;
+  
+  &:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  }
+`;
+
+const FavoriteTitle = styled.h3`
+  margin: 0 0 10px 0;
+  color: #180018;
+  font-size: 18px;
+  font-weight: 700;
+`;
+
+const FavoriteInfo = styled.p`
+  color: #512A59;
+  font-size: 14px;
+  margin: 6px 0;
+`;
+
+const TagSelectorGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin: 20px 0;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 5px;
+`;
+
+const TagOption = styled.div`
+  background: #FBE4D8;
+  color: #512A59;
+  padding: 10px 15px;
+  border-radius: 16px;
+  font-size: 13px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+  
+  &:hover {
+    background: #DFB6B2;
+  }
+  
+  ${({ isSelected }) =>
+    isSelected &&
+    `
+    background: #854E6B;
+    color: #FFFFFF;
+    border-color: #FFFFFF;
+  `}
 `;
 
 const ProfilePage = () => {
@@ -436,37 +543,49 @@ const ProfilePage = () => {
   const [interests, setInterests] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedDay, setSelectedDay] = useState(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [schedule, setSchedule] = useState({});
+  const [schedule, setSchedule] = useState([]);
+  const [favorites, setFavorites] = useState([]);
+  const [activeTab, setActiveTab] = useState('calendar');
   const [selectedDate, setSelectedDate] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAddTagModalOpen, setIsAddTagModalOpen] = useState(false);
+  const [selectedNewTags, setSelectedNewTags] = useState([]);
   const [newEvent, setNewEvent] = useState({
     title: '',
     startTime: '09:00',
     endTime: '10:00',
   });
-  const [userId] = useState(1);
 
-  // Загрузка данных профиля и расписания
+  const userId = useMemo(() => {
+    const auth = localStorage.getItem('auth');
+    return auth ? JSON.parse(auth).userId : null;
+  }, []);
+
   useEffect(() => {
-    loadProfileData();
-    loadSchedule();
-  }, [currentMonth]);
+    if (userId) {
+      loadProfileData();
+      loadSchedule();
+      loadFavorites();
+    }
+  }, [currentMonth, userId]);
 
   const loadProfileData = async () => {
+    if (!userId) return;
+    
     try {
       setLoading(true);
+      const profile = await userAPI.getProfile(userId);
       
       setUser({
-        id: 1,
-        name: 'Имя Фамилия',
-        email: 'user@example.com',
-        friendsCount: 42,
-        avatar: null,
+        id: profile.id,
+        name: profile.name,
+        email: profile.email,
+        friendsCount: profile.friends_count || 0,
+        avatar: profile.avatar,
       });
-      
-      setInterests(['Концерты', 'Театр', 'Выставки', 'Спорт', 'Музыка']);
+
+      setInterests(profile.interests || []);
       
       setRecommendations([
         { id: 1, name: 'Рекомендация 1' },
@@ -479,42 +598,62 @@ const ProfilePage = () => {
       
     } catch (error) {
       console.error('Error loading profile:', error);
+      // Фолбэк на моковые данные при ошибке
+      setUser({
+        id: 1,
+        name: 'Имя Фамилия',
+        email: 'user@example.com',
+        friendsCount: 42,
+        avatar: null,
+      });
+      setInterests(['Концерты', 'Театр', 'Выставки', 'Спорт', 'Музыка']);
     } finally {
       setLoading(false);
     }
   };
 
-  // Загрузка расписания с бэкенда
-  const loadSchedule = async () => {
+  const loadSchedule = useCallback(async () => {
+    if (!userId) return;
     try {
-      const startOfWeek = new Date(currentMonth);
-      startOfWeek.setDate(currentMonth.getDate() - currentMonth.getDay() + 1);
-      
-      const response = await scheduleAPI.getSchedule(userId, startOfWeek);
-      
-      if (response.success) {
-        setSchedule(response.data);
-      }
+      const response = await scheduleAPI.getSchedule(userId, 'planned');
+      setSchedule(Array.isArray(response) ? response : []);
     } catch (error) {
       console.error('Error loading schedule:', error);
-      // Тестовые данные при ошибке
-      setSchedule({
-        '2024-04-15': [{ start: '2024-04-15T10:00:00', end: '2024-04-15T12:00:00', title: 'Встреча' }],
-        '2024-04-18': [{ start: '2024-04-18T14:00:00', end: '2024-04-18T16:00:00', title: 'Обучение' }],
-      });
+      setSchedule([]);
     }
-  };
+  }, [userId]);
 
-  // Обработка клика по дате
+  const loadFavorites = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const response = await scheduleAPI.getFavorites(userId);
+      setFavorites(Array.isArray(response) ? response : []);
+    } catch (error) {
+      console.error('Error loading favorites:', error);
+      setFavorites([]);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    if (!isModalOpen && userId) {
+      loadSchedule();
+    }
+  }, [isModalOpen, loadSchedule, userId]);
+
+  const scheduleByDate = useMemo(() => {
+    return schedule.reduce((acc, event) => {
+      if (!event.start) return acc;
+      const dateKey = event.start.split('T')[0];
+      if (!acc[dateKey]) acc[dateKey] = [];
+      acc[dateKey].push(event);
+      return acc;
+    }, {});
+  }, [schedule]);
+
   const handleDayClick = (day) => {
     if (!day) return;
-    
     const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-    const dateKey = date.toISOString().split('T')[0];
-    
     setSelectedDate(date);
-    
-    // Сбрасываем форму для нового события
     setNewEvent({
       title: '',
       startTime: '09:00',
@@ -523,11 +662,9 @@ const ProfilePage = () => {
     setIsModalOpen(true);
   };
 
-  // Добавление нового события
   const handleAddEvent = async (e) => {
     e.preventDefault();
-    
-    if (!selectedDate) return;
+    if (!selectedDate || !userId) return;
     
     try {
       const [startHours, startMinutes] = newEvent.startTime.split(':');
@@ -538,26 +675,24 @@ const ProfilePage = () => {
       
       const end = new Date(selectedDate);
       end.setHours(parseInt(endHours), parseInt(endMinutes));
-      
-      const response = await scheduleAPI.addBusySlot(
+
+      await scheduleAPI.addPersonalEvent(
         userId,
+        newEvent.title || 'Занят',
         start,
         end,
-        newEvent.title || 'Занят'
+        '',
+        ''
       );
       
-      if (response.success) {
-        await loadSchedule();
-        setIsModalOpen(false);
-        alert('Событие добавлено!');
-      }
+      setIsModalOpen(false);
+      await loadSchedule();
     } catch (error) {
       console.error('Error adding event:', error);
       alert('Ошибка добавления события');
     }
   };
 
-  // Форматирование времени
   const formatTime = (isoString) => {
     if (!isoString) return '';
     const date = new Date(isoString);
@@ -567,18 +702,52 @@ const ProfilePage = () => {
     });
   };
 
-  const handleRemoveInterest = (interest) => {
-    setInterests(interests.filter(i => i !== interest));
-  };
+  const handleRemoveInterest = async (interest) => {
+    if (!userId) return;
+    try {
+      const newInterests = interests.filter(i => i !== interest);
 
-  const handleAddInterest = () => {
-    const newInterest = prompt('Введите интерес:');
-    if (newInterest) {
-      setInterests([...interests, newInterest]);
+      await userAPI.updateProfile(userId, { interests: newInterests });
+      
+      setInterests(newInterests);
+    } catch (error) {
+      console.error('Error removing interest:', error);
+      alert('Не удалось удалить интерес');
     }
   };
 
-  // Генерация дней месяца
+  const remainingTags = useMemo(() => {
+    return AVAILABLE_TAGS.filter(tag => !interests.includes(tag));
+  }, [interests]);
+
+  const handleOpenAddTagModal = () => {
+    setSelectedNewTags([]);
+    setIsAddTagModalOpen(true);
+  };
+
+  const handleToggleNewTag = (tag) => {
+    setSelectedNewTags(prev =>
+      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+    );
+  };
+
+  const handleAddSelectedTags = async () => {
+    if (!userId || selectedNewTags.length === 0) return;
+    
+    try {
+      const allInterests = [...interests, ...selectedNewTags];
+
+      await userAPI.updateProfile(userId, { interests: allInterests });
+      
+      setInterests(allInterests);
+      setIsAddTagModalOpen(false);
+      setSelectedNewTags([]);
+    } catch (error) {
+      console.error('Error adding interests:', error);
+      alert('Не удалось добавить интересы');
+    }
+  };
+
   const generateMonthDays = () => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
@@ -587,7 +756,6 @@ const ProfilePage = () => {
     const lastDay = new Date(year, month + 1, 0);
     
     const days = [];
-    
     const startDayOfWeek = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
     
     for (let i = 0; i < startDayOfWeek; i++) {
@@ -615,25 +783,22 @@ const ProfilePage = () => {
   const today = new Date().getDate();
   const days = generateMonthDays();
 
-  if (loading) {
+  if (loading || !userId) {
     return (
       <PageContainer>
         <TypeFilters activeType="" onTypeChange={() => {}} />
-        <Loader>Загрузка профиля...</Loader>
+        <Loader>{!userId ? 'Требуется авторизация...' : 'Загрузка профиля...'}</Loader>
       </PageContainer>
     );
   }
 
   return (
     <PageContainer>
-      {/* Фильтры типов мероприятий */}
       <TypeFilters activeType="" onTypeChange={() => {}} />
       
-      {/* Фиолетовая шапка профиля */}
       <ProfileHeader>
         <ContentWrapper>
           <ProfileTop>
-            {/* Информация о пользователе */}
             <ProfileInfo>
               <Avatar>
                 {user?.avatar ? (
@@ -653,7 +818,6 @@ const ProfilePage = () => {
               </EditButton>
             </ProfileInfo>
 
-            {/* Календарь */}
             <ProfileCalendar>
               <CalendarMonth>
                 <CalendarHeader>
@@ -676,7 +840,7 @@ const ProfilePage = () => {
                       ? new Date(currentMonth.getFullYear(), currentMonth.getMonth(), item.day).toISOString().split('T')[0]
                       : null;
                     
-                    const dayEvents = item.day ? schedule[dateKey] : [];
+                    const dayEvents = item.day ? scheduleByDate[dateKey] || [] : [];
                     
                     return (
                       <Day
@@ -684,22 +848,10 @@ const ProfilePage = () => {
                         isEmpty={item.isEmpty}
                         isToday={!item.isEmpty && item.day === today && currentMonth.getMonth() === new Date().getMonth()}
                         isSelected={!item.isEmpty && selectedDate?.getDate() === item.day}
-                        isBusy={!item.isEmpty && dayEvents?.length > 0}
+                        isBusy={dayEvents.length > 0}
                         onClick={() => !item.isEmpty && handleDayClick(item.day)}
                       >
                         {item.day}
-                        {!item.isEmpty && dayEvents?.length > 0 && (
-                          <DayEvents>
-                            {dayEvents.slice(0, 2).map((event, i) => (
-                              <EventItem key={i}>
-                                {formatTime(event.start)} - {event.title}
-                              </EventItem>
-                            ))}
-                            {dayEvents.length > 2 && (
-                              <EventItem>+{dayEvents.length - 2} ещё</EventItem>
-                            )}
-                          </DayEvents>
-                        )}
                       </Day>
                     );
                   })}
@@ -710,63 +862,111 @@ const ProfilePage = () => {
         </ContentWrapper>
       </ProfileHeader>
 
-      {/* Белый блок с интересами и рекомендациями */}
       <ContentWrapper>
         <WhiteSection>
-          <SectionTitle>Ваши интересы</SectionTitle>
-          
-          <InterestsGrid>
-            {interests.map((interest, index) => (
-              <InterestTag key={index}>
-                {interest}
-                <RemoveButton onClick={() => handleRemoveInterest(interest)}>
-                  ✕
-                </RemoveButton>
-              </InterestTag>
-            ))}
-            <AddInterestButton onClick={handleAddInterest}>
-              + Добавить
-            </AddInterestButton>
-          </InterestsGrid>
+          <TabContainer>
+            <TabButton 
+              isActive={activeTab === 'calendar'} 
+              onClick={() => setActiveTab('calendar')}
+            >
+              📅 Календарь
+            </TabButton>
+            <TabButton 
+              isActive={activeTab === 'favorites'} 
+              onClick={() => setActiveTab('favorites')}
+            >
+              ⭐ Избранное
+            </TabButton>
+          </TabContainer>
 
-          <SectionTitle>Рекомендации для вас</SectionTitle>
-          
-          <RecommendationsGrid>
-            {recommendations.map((rec) => (
-              <RecommendationCard key={rec.id} />
-            ))}
-          </RecommendationsGrid>
+          {activeTab === 'calendar' && (
+            <>
+              <SectionTitle>Ваши интересы</SectionTitle>
+              
+              <InterestsGrid>
+                {interests.map((interest, index) => (
+                  <InterestTag key={index}>
+                    {interest}
+                    <RemoveButton onClick={() => handleRemoveInterest(interest)}>
+                      ✕
+                    </RemoveButton>
+                  </InterestTag>
+                ))}
+                {remainingTags.length > 0 && (
+                  <AddInterestButton onClick={handleOpenAddTagModal}>
+                    + Добавить
+                  </AddInterestButton>
+                )}
+              </InterestsGrid>
+
+              <SectionTitle>Рекомендации для вас</SectionTitle>
+              
+              <RecommendationsGrid>
+                {recommendations.map((rec) => (
+                  <RecommendationCard key={rec.id} />
+                ))}
+              </RecommendationsGrid>
+            </>
+          )}
+
+          {activeTab === 'favorites' && (
+            <>
+              <SectionTitle>Мои избранные события</SectionTitle>
+              
+              {favorites.length === 0 ? (
+                <EmptyState>
+                  <EmptyIcon>⭐</EmptyIcon>
+                  <EmptyText>Избранных событий еще нет</EmptyText>
+                  <EmptySubtext>Добавляйте события в избранное, чтобы они появились здесь</EmptySubtext>
+                </EmptyState>
+              ) : (
+                <FavoritesGrid>
+                  {favorites.map((event) => (
+                    <FavoriteCard key={event.id}>
+                      <FavoriteTitle>{event.name}</FavoriteTitle>
+                      {event.start && (
+                        <FavoriteInfo>📅 {formatTime(event.start)}</FavoriteInfo>
+                      )}
+                      {event.location && (
+                        <FavoriteInfo>📍 {event.location}</FavoriteInfo>
+                      )}
+                    </FavoriteCard>
+                  ))}
+                </FavoritesGrid>
+              )}
+            </>
+          )}
         </WhiteSection>
       </ContentWrapper>
 
-      {/* Модальное окно для добавления события */}
       {isModalOpen && selectedDate && (
         <ModalOverlay onClick={() => setIsModalOpen(false)}>
           <Modal onClick={(e) => e.stopPropagation()}>
             <ModalTitle>
-              {schedule[selectedDate.toISOString().split('T')[0]]?.length > 0 
+              {scheduleByDate[selectedDate.toISOString().split('T')[0]]?.length > 0 
                 ? `События на ${selectedDate.toLocaleDateString('ru-RU')}` 
                 : `Добавить событие на ${selectedDate.toLocaleDateString('ru-RU')}`}
             </ModalTitle>
             
-            {/* Показываем существующие события */}
-            {schedule[selectedDate.toISOString().split('T')[0]]?.length > 0 && (
-              <div style={{ marginBottom: '20px', padding: '10px', background: '#FBE4D8', borderRadius: '12px' }}>
-                {schedule[selectedDate.toISOString().split('T')[0]].map((event, i) => (
-                  <div key={i} style={{ margin: '5px 0', fontSize: '14px' }}>
-                    <strong>{formatTime(event.start)} - {formatTime(event.end)}</strong>
-                    <br />
-                    {event.title}
-                  </div>
+            {scheduleByDate[selectedDate.toISOString().split('T')[0]]?.length > 0 ? (
+              <EventList>
+                {scheduleByDate[selectedDate.toISOString().split('T')[0]].map((event, i) => (
+                  <EventListItem key={i}>
+                    <div>
+                      <strong>{formatTime(event.start)}</strong>
+                      <div style={{ fontSize: '13px', color: '#512A59' }}>{event.name}</div>
+                    </div>
+                  </EventListItem>
                 ))}
-              </div>
+              </EventList>
+            ) : (
+              <p style={{ color: '#512A59', marginBottom: '15px' }}>На этот день событий пока нет.</p>
             )}
             
-            {/* Форма добавления нового события */}
             <ModalForm onSubmit={handleAddEvent}>
               <ModalInput
                 type="text"
-                placeholder="Название события (опционально)"
+                placeholder="Название нового события (опционально)"
                 value={newEvent.title}
                 onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })}
               />
@@ -786,13 +986,49 @@ const ProfilePage = () => {
               
               <ModalButtons>
                 <ModalButton type="button" secondary onClick={() => setIsModalOpen(false)}>
-                  Отмена
+                  Закрыть
                 </ModalButton>
                 <ModalButton type="submit">
-                  Добавить
+                  Добавить событие
                 </ModalButton>
               </ModalButtons>
             </ModalForm>
+          </Modal>
+        </ModalOverlay>
+      )}
+
+      {isAddTagModalOpen && (
+        <ModalOverlay onClick={() => setIsAddTagModalOpen(false)}>
+          <Modal onClick={(e) => e.stopPropagation()}>
+            <ModalTitle>Добавить интересы</ModalTitle>
+            <p style={{ color: '#512A59', fontSize: '14px', marginBottom: '15px' }}>
+              Выберите теги из списка ({remainingTags.length} доступно):
+            </p>
+            
+            <TagSelectorGrid>
+              {remainingTags.map((tag) => (
+                <TagOption
+                  key={tag}
+                  isSelected={selectedNewTags.includes(tag)}
+                  onClick={() => handleToggleNewTag(tag)}
+                >
+                  {tag}
+                </TagOption>
+              ))}
+            </TagSelectorGrid>
+            
+            <ModalButtons>
+              <ModalButton type="button" secondary onClick={() => setIsAddTagModalOpen(false)}>
+                Отмена
+              </ModalButton>
+              <ModalButton 
+                type="button" 
+                onClick={handleAddSelectedTags}
+                disabled={selectedNewTags.length === 0}
+              >
+                Добавить ({selectedNewTags.length})
+              </ModalButton>
+            </ModalButtons>
           </Modal>
         </ModalOverlay>
       )}
