@@ -1,17 +1,16 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import EventCard from '../components/events/EventCard';
 import Calendar from '../components/events/Calendar';
 import Recommendations from '../components/events/Recommendations';
 import TypeFilters from '../components/events/TypeFilters';
 import useEvents from '../hooks/useEvents';
+import { scheduleAPI } from '../services/api';
 
-// Основной контейнер страницы
 const PageContainer = styled.div`
   min-height: 100vh;
 `;
 
-// Блок событий (фиолетовый фон)
 const EventsSection = styled.section`
   background: #522B5B;
   padding: 40px 0 60px 0;
@@ -54,14 +53,12 @@ const EventsGrid = styled.div`
   }
 `;
 
-// Блок календаря и рекомендаций (белый фон)
 const InfoSection = styled.section`
   background: #FFFFFF;
   padding: 40px 0;
   color: #180018;
 `;
 
-// Loader
 const Loader = styled.div`
   text-align: center;
   padding: 60px;
@@ -69,7 +66,6 @@ const Loader = styled.div`
   font-size: 20px;
 `;
 
-// Сообщение об ошибке
 const ErrorMessage = styled.div`
   text-align: center;
   padding: 60px;
@@ -80,14 +76,38 @@ const ErrorMessage = styled.div`
 const EventsPage = () => {
   const [activeType, setActiveType] = useState('Все мероприятия');
   const [selectedCity, setSelectedCity] = useState(null);
+  const [favoriteIds, setFavoriteIds] = useState(new Set());
+
+  const userId = useMemo(() => {
+    const auth = localStorage.getItem('auth');
+    return auth ? JSON.parse(auth).userId : null;
+  }, []);
 
   const data = useMemo(() => ({
-        city: selectedCity,
+    city: selectedCity,
     type: activeType !== 'Все мероприятия' ? activeType : null,
-  }),[selectedCity, activeType])
+  }), [selectedCity, activeType]);
   
-  // Используем хук для загрузки событий с API
-  const { events, loading, error } = useEvents(data);
+  const { events, loading, error, refetch } = useEvents(data);
+
+  useEffect(() => {
+    if (userId) {
+      loadFavorites();
+    }
+  }, [userId]);
+
+  const loadFavorites = async () => {
+    if (!userId) return;
+    try {
+      const response = await scheduleAPI.getFavorites(userId);
+      const data = Array.isArray(response) ? response : [];
+      const ids = new Set(data.map(event => event.id));
+      setFavoriteIds(ids);
+    } catch (err) {
+      console.error('Error loading favorites:', err);
+      setFavoriteIds(new Set());
+    }
+  };
 
   const handleTypeChange = (type) => {
     setActiveType(type);
@@ -97,7 +117,37 @@ const EventsPage = () => {
     setSelectedCity(city === 'Все города' ? null : city);
   };
 
-  // Состояние загрузки
+  const handleAddToSchedule = useCallback(async (userId, eventId) => {
+    if (!userId) return;
+    try {
+      await scheduleAPI.addPlatformEvent(userId, eventId);
+      refetch();
+    } catch (err) {
+      console.error('Error adding to schedule:', err);
+      alert('Не удалось добавить событие в расписание');
+    }
+  }, [refetch]);
+
+  const handleToggleFavorite = useCallback(async (userId, eventId, shouldBeFavorite) => {
+    if (!userId) return;
+    try {
+      if (shouldBeFavorite) {
+        await scheduleAPI.addToFavorites(userId, eventId);
+        setFavoriteIds(prev => new Set(prev).add(eventId));
+      } else {
+        await scheduleAPI.removeFromFavorites(userId, eventId);
+        setFavoriteIds(prev => {
+          const next = new Set(prev);
+          next.delete(eventId);
+          return next;
+        });
+      }
+    } catch (err) {
+      console.error('Error toggling favorite:', err);
+      alert('Не удалось обновить избранное');
+    }
+  }, []);
+
   if (loading) {
     return (
       <PageContainer>
@@ -111,12 +161,10 @@ const EventsPage = () => {
     );
   }
 
-  // Состояние ошибки
   if (error) {
     console.warn('API не доступен, используем тестовые данные:', error);
   }
 
-  // Тестовые данные (если API не доступен)
   const mockEvents = [
     {
       id: 1,
@@ -197,26 +245,29 @@ const EventsPage = () => {
     },
   ];
 
-  // Используем данные из API или тестовые
   const displayEvents = events.length > 0 ? events : mockEvents;
 
   return (
     <PageContainer>
-      {/* Белая полоса с типами мероприятий */}
       <TypeFilters activeType={activeType} onTypeChange={handleTypeChange} />
 
-      {/* Основной блок с событиями (фиолетовый фон) */}
       <EventsSection>
         <ContentWrapper>
           <EventsGrid>
             {displayEvents.map((event) => (
-              <EventCard key={event.id} event={event} />
+              <EventCard 
+                key={event.id} 
+                event={event}
+                userId={userId}
+                onAddToSchedule={handleAddToSchedule}
+                onToggleFavorite={handleToggleFavorite}
+                isFavorite={favoriteIds.has(event.id)}
+              />
             ))}
           </EventsGrid>
         </ContentWrapper>
       </EventsSection>
 
-      {/* Блок календаря и рекомендаций (белый фон) */}
       <InfoSection>
         <ContentWrapper>
           <Calendar />
