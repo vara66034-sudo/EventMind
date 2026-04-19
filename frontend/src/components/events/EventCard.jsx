@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 
 const Card = styled(Link)`
   flex: 0 0 380px;
+  min-width: 380px;
   scroll-snap-align: start;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   background: #FBE4D8;
   border-radius: 24px;
   overflow: hidden;
@@ -15,25 +18,34 @@ const Card = styled(Link)`
   color: inherit;
   padding: 25px;
   min-height: 320px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
   
   &:hover {
     transform: translateY(-5px);
     box-shadow: 0 8px 25px rgba(133, 78, 107, 0.3);
   }
   
-  @media (max-width: 768px) {
-    flex: 0 0 300px;
+  @media (max-width: 1024px) {
+    flex: 0 0 320px;
+    min-width: 320px;
     padding: 20px;
   }
+  
+  @media (max-width: 480px) {
+    flex: 0 0 85vw;
+    min-width: 85vw;
+    padding: 20px;
+    min-height: 300px;
+  }
+`;
+
+const CardWrapper = styled.div`
+  position: relative;
 `;
 
 const CardImage = styled.div`
   width: 100%;
   height: 180px;
-  background: #FBE4D8;  /* бежевый фон вместо градиента */
+  background: #FBE4D8;
   border-radius: 16px;
   margin-bottom: 16px;
   
@@ -68,56 +80,121 @@ const Info = styled.p`
   line-height: 1.5;
 `;
 
+const ButtonGroup = styled.div`
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+`;
+
 const PriceButton = styled.div`
-  display: inline-block;
-  padding: 10px 24px;
+  flex: 1;
+  padding: 10px 12px;
   background: #FFFFFF;
   color: #512A59;
   border-radius: 20px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  margin-top: 12px;
   text-align: center;
 `;
 
-const EventCard = ({ event }) => {
+const AddButton = styled.button`
+  flex: 1;
+  padding: 10px 12px;
+  background: #854E6B;
+  color: #FFFFFF;
+  border: none;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  
+  &:hover {
+    background: #512A59;
+  }
+`;
+
+const FavoriteButton = styled.button`
+  padding: 10px 16px;
+  background: transparent;
+  color: #854E6B;
+  border: 2px solid #854E6B;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  
+  &:hover {
+    background: #854E6B;
+    color: #FFFFFF;
+  }
+  
+  ${({ isActive }) => isActive && `
+    background: #854E6B;
+    color: #FFFFFF;
+  `}
+`;
+
+const EventCard = ({ event, userId, onAddToSchedule, onToggleFavorite, isFavorite = false }) => {
   const formatDate = (dateString) => {
-    if (!dateString || typeof dateString !== 'string') {
-      return 'Дата не указана';
-    }
-    
+    if (!dateString) return 'Дата не указана';
     try {
-      const dateStringFormatted = dateString.replace(' ', 'T');
-      const date = new Date(dateStringFormatted);
-      
-      if (isNaN(date.getTime())) {
-        return 'Дата не указана';
-      }
-      
+      const date = new Date(dateString.includes('T') ? dateString : dateString.replace(' ', 'T'));
+      if (isNaN(date.getTime())) return 'Дата не указана';
       return date.toLocaleString('ru-RU', {
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
+        day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
       });
-    } catch (error) {
-      console.error('Error formatting date:', error);
+    } catch {
       return 'Дата не указана';
     }
   };
 
+  const handleAddClick = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (onAddToSchedule && userId && event.id) {
+      onAddToSchedule(userId, event.id);
+    }
+  }, [onAddToSchedule, userId, event.id]);
+
+  const handleFavoriteClick = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (onToggleFavorite && userId && event.id) {
+      onToggleFavorite(userId, event.id, !isFavorite);
+    }
+  }, [onToggleFavorite, userId, event.id, isFavorite]);
+
   return (
-    <Card to={`/events/${event.id}`}>
-      <div>
-        <CardImage imageUrl={event.image} />
-        <EventType>Тип мероприятия</EventType>
-        <Title>{event.name}</Title>
-        <Info>{formatDate(event.date_begin)}</Info>
-        {event.location && <Info>{event.location}</Info>}
-      </div>
-      <PriceButton>Цена</PriceButton>
-    </Card>
+    <CardWrapper>
+      <Card to={`/events/${event.id}`}>
+        <div>
+          <CardImage imageUrl={event.image} />
+          <EventType>{event.type || 'Мероприятие'}</EventType>
+          <Title>{event.name}</Title>
+          <Info>{formatDate(event.start || event.date_begin)}</Info>
+          {event.location && <Info>{event.location}</Info>}
+        </div>
+        <ButtonGroup>
+          <PriceButton>{event.price ? `${event.price} ₽` : 'Бесплатно'}</PriceButton>
+          <AddButton type="button" onClick={handleAddClick}>
+            В календарь
+          </AddButton>
+          <FavoriteButton 
+            type="button" 
+            onClick={handleFavoriteClick}
+            isActive={isFavorite}
+            aria-label={isFavorite ? 'Убрать из избранного' : 'Добавить в избранное'}
+          >
+            {isFavorite ? '⭐' : '☆'}
+          </FavoriteButton>
+        </ButtonGroup>
+      </Card>
+    </CardWrapper>
   );
 };
 
