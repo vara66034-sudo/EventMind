@@ -1,17 +1,14 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_ODOO_URL || 'http://localhost:8069';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
   timeout: 10000,
 });
 
-// Хуйня для обработки ошибок
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -20,97 +17,152 @@ api.interceptors.response.use(
   }
 );
 
-// API для событий
-export const eventsAPI = {
-  // Получение всех событий
-  getAll: (params = {}) => {
-    return api.get('/api/events', { params });
+const sendAction = async (action, payload) => {
+  const response = await api.post('/api/auth', {
+    action,
+    ...payload,
+  });
+  return response.data;
+};
+
+export const scheduleAPI = {
+  getSchedule: async (userId, status = 'planned') => {
+    return sendAction('get_schedule', { user_id: userId, status });
   },
-  
-  // Получение 1 события по ID
-  getById: (id) => {
-    return api.get(`/api/events/${id}`);
+
+  getFavorites: async (userId) => {
+    return sendAction('get_favorites', { user_id: userId });
   },
-  
-  // Регистрация на событие
-  register: (eventId, userData) => {
-    return api.post(`/api/events/${eventId}/register`, userData);
+
+  addToFavorites: async (userId, eventId) => {
+    return sendAction('add_favorite', { user_id: userId, event_id: eventId });
   },
-  
-  // Получение .ics файл
-  getIcs: async (id) => {
-    const response = await api.get(`/event/${id}/ics`, {
-      responseType: 'blob',
+
+  removeFromFavorites: async (userId, eventId) => {
+    return sendAction('remove_favorite', { user_id: userId, event_id: eventId });
+  },
+
+  addPlatformEvent: async (userId, eventId) => {
+    return sendAction('add_platform_event', { user_id: userId, event_id: eventId });
+  },
+
+  addPersonalEvent: async (userId, title, start, end, description = '', location = '') => {
+    return sendAction('add_personal_event', {
+      user_id: userId,
+      title,
+      start: new Date(start).toISOString(),
+      end: end ? new Date(end).toISOString() : null,
+      description,
+      location,
     });
+  },
+
+  updatePersonalEvent: async (userId, scheduleId, updates) => {
+    return sendAction('update_personal_event', {
+      user_id: userId,
+      schedule_id: scheduleId,
+      title: updates.title,
+      start: updates.start ? new Date(updates.start).toISOString() : undefined,
+      end: updates.end ? new Date(updates.end).toISOString() : undefined,
+      description: updates.description,
+      location: updates.location,
+    });
+  },
+
+  removeEvent: async (userId, scheduleId) => {
+    return sendAction('remove_event', { user_id: userId, schedule_id: scheduleId });
+  },
+
+  exportICS: async (userId) => {
+    const response = await api.post('/api/auth', {
+      action: 'export_ics',
+      user_id: userId,
+    }, { responseType: 'blob' });
+    
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'eventmind_schedule.ics');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+};
+
+export const eventsAPI = {
+  getAll: async (params = {}) => {
+    return sendAction('get_events', params);
+  },
+  getById: async (id) => sendAction('get_event', { event_id: id }),
+  register: async (eventId, userData) => 
+    sendAction('register_for_event', { event_id: eventId, ...userData }),
+  getIcs: async (id) => {
+    const response = await api.post('/api/auth', {
+      action: 'get_event_ics',
+      event_id: id,
+    }, { responseType: 'blob' });
     return response;
   },
-  
-  // Поиск событий
-  search: (query, params = {}) => {
-    return api.get('/api/events/search', {
-      params: { q: query, ...params },
-    });
-  },
+  search: async (query, params = {}) => 
+    sendAction('search_events', { q: query, ...params }),
 };
 
-// API для уведомлений
 export const notificationsAPI = {
-  sendTest: (registrationId) => {
-    return api.post('/api/notifications/test', {
-      registration_id: registrationId,
-    });
-  },
-  
-  getStats: () => {
-    return api.get('/api/notifications/stats');
-  },
-  
-  subscribe: (email, eventId) => {
-    return api.post('/api/notifications/subscribe', {
-      email,
-      event_id: eventId,
-    });
-  },
+  subscribe: (email, eventId) => 
+    sendAction('subscribe_notification', { email, event_id: eventId }),
+  sendTest: (registrationId) => 
+    sendAction('send_test_notification', { registration_id: registrationId }),
+  getStats: () => sendAction('get_notification_stats'),
 };
 
-// API для городов
 export const citiesAPI = {
-  getAll: () => {
-    return api.get('/api/cities');
-  },
+  getAll: () => sendAction('get_cities'),
 };
 
-// API для авторизации
 export const authAPI = {
-  login: (email, password) => {
-    return api.post('/api/auth/login', { email, password });
+  register: async (userData) => {
+    const { interests, ...rest } = userData;
+    const payload = { ...rest };
+    
+    if (interests && Array.isArray(interests)) {
+      payload.interests = interests;
+    }
+    
+    return sendAction('register', payload);
   },
   
-  register: (userData) => {
-    return api.post('/api/auth/register', userData);
+  login: async (email, password) => {
+    return sendAction('login', { email, password });
   },
   
-  logout: () => {
-    return api.post('/api/auth/logout');
+  logout: async (userId) => {
+    return sendAction('logout', { user_id: userId });
   },
   
-  me: () => {
-    return api.get('/api/auth/me');
+  me: async (userId) => {
+    return sendAction('get_profile', { user_id: userId });
   },
 };
 
-// API для пользователя
 export const userAPI = {
-  getProfile: () => {
-    return api.get('/api/user/profile');
+  getProfile: async (userId) => {
+    return sendAction('get_profile', { user_id: userId });
   },
   
-  updateProfile: (data) => {
-    return api.put('/api/user/profile', data);
+  updateProfile: async (userId, data) => {
+    const { interests, ...rest } = data;
+    const payload = { user_id: userId, ...rest };
+    
+    if (interests && Array.isArray(interests)) {
+      payload.interests = interests;
+    }
+    
+    return sendAction('update_interests', payload);
   },
   
-  myRegistrations: () => {
-    return api.get('/api/user/registrations');
+  myRegistrations: async (userId) => {
+    return sendAction('get_registrations', { user_id: userId });
   },
 };
 
