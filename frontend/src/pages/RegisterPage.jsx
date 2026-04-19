@@ -79,20 +79,28 @@ const RegisterPage = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
     
     try {
-      // TODO: Интеграция с API
-      // const response = await api.post('/api/auth/register', { name, email, password });
+      localStorage.setItem('pendingRegistration', JSON.stringify({
+        name,
+        email,
+        password,
+      }));
       
-      alert('Регистрация будет реализована после интеграции с API');
-      navigate('/login');
+      // Переходим на выбор интересов
+      navigate('/select-interests');
+      
     } catch (error) {
       console.error('Register error:', error);
-      alert('Ошибка регистрации');
+      alert('Ошибка подготовки регистрации');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -109,6 +117,7 @@ const RegisterPage = () => {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
+              disabled={isSubmitting}
             />
             <Input
               type="email"
@@ -116,6 +125,7 @@ const RegisterPage = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              disabled={isSubmitting}
             />
             <Input
               type="password"
@@ -123,8 +133,11 @@ const RegisterPage = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              disabled={isSubmitting}
             />
-            <Button type="submit">Зарегистрироваться</Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Загрузка...' : 'Зарегистрироваться'}
+            </Button>
           </Form>
           <LinkText>
             Уже есть аккаунт? <Link to="/login">Войти</Link>
