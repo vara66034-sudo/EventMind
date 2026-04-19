@@ -7,6 +7,11 @@
   box-sizing: border-box;
 }
 
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden; /* 🔥 Блокирует горизонтальную прокрутку страницы */
+}
+
 body {
   font-family: 'Raleway', sans-serif;
   background: #FFFFFF;
@@ -14,6 +19,10 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden; /* 🔥 Дополнительная страховка от белой полосы */
+  width: 100%;
+  min-height: 100vh;
+  position: relative;
 }
 
 /* Типографика */
