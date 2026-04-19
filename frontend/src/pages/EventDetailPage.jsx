@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useState, useCallback, useMemo } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import TypeFilters from '../components/events/TypeFilters';
 import Calendar from '../components/events/Calendar';
 import Recommendations from '../components/events/Recommendations';
+import { useEvent } from '../hooks/useEvent';
+import { scheduleAPI } from '../services/api';
 
 const PageContainer = styled.div`
   min-height: 100vh;
 `;
 
-// Фиолетовый блок с основной информацией
 const EventHero = styled.section`
   background: #2B124C;
   padding: 40px 0;
@@ -21,7 +22,6 @@ const ContentWrapper = styled.div`
   padding: 0 20px;
 `;
 
-// Карточка события
 const EventCard = styled.div`
   background: #FBE4D8;
   border-radius: 24px;
@@ -64,8 +64,14 @@ const Info = styled.p`
   margin: 8px 0;
 `;
 
+const ButtonGroup = styled.div`
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+`;
+
 const PriceButton = styled.button`
-  display: inline-block;
+  flex: 1;
   padding: 12px 32px;
   background: #FFFFFF;
   color: #512A59;
@@ -74,14 +80,60 @@ const PriceButton = styled.button`
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
-  margin-top: 20px;
   
   &:hover {
     background: #DFB6B2;
   }
 `;
 
-// Белый блок с информацией
+const AddButton = styled.button`
+  flex: 1;
+  padding: 12px 32px;
+  background: #854E6B;
+  color: #FFFFFF;
+  border: none;
+  border-radius: 20px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  
+  &:hover {
+    background: #512A59;
+  }
+  
+  &:disabled {
+    background: #D9D9D9;
+    cursor: not-allowed;
+  }
+`;
+
+const FavoriteButton = styled.button`
+  padding: 12px 20px;
+  background: transparent;
+  color: #854E6B;
+  border: 2px solid #854E6B;
+  border-radius: 20px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  
+  &:hover {
+    background: #854E6B;
+    color: #FFFFFF;
+  }
+  
+  ${({ isActive }) => isActive && `
+    background: #854E6B;
+    color: #FFFFFF;
+  `}
+`;
+
 const InfoSection = styled.section`
   background: #FFFFFF;
   padding: 30px;
@@ -108,77 +160,152 @@ const InfoContent = styled.div`
   color: #180018;
 `;
 
+const Loader = styled.div`
+  text-align: center;
+  padding: 60px;
+  color: #FFFFFF;
+  font-size: 20px;
+`;
+
+const ErrorMessage = styled.div`
+  text-align: center;
+  padding: 60px;
+  color: #DFB6B2;
+  font-size: 18px;
+`;
+
 const EventDetailPage = () => {
   const { id } = useParams();
-  const [event, setEvent] = useState(null);
+  const navigate = useNavigate();
   const [activeType, setActiveType] = useState('Все мероприятия');
-
-  useEffect(() => {
-    // Моковые данные (потом заменим на API)
-    setEvent({
-      id: parseInt(id),
-      date_end: '2024-04-15 22:00:00',
-      description: 'Это будет незабываемый вечер! Живая музыка, световое шоу и отличная атмосфера. Не пропустите!',
-      name: 'EventMind AI Hackathon 2026',
-      date_begin: '2026-05-20 10:00:00',
-      location: 'Екатеринбург, Технопарк',
-      image: 'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=800'
-    });
-  }, [id]);
+  const [isAdding, setIsAdding] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const userId = useMemo(() => {
+    const auth = localStorage.getItem('auth');
+    return auth ? JSON.parse(auth).userId : null;
+  }, []);
+  
+  const { event, loading, error, refetch } = useEvent(id);
 
   const handleTypeChange = (type) => {
     setActiveType(type);
   };
 
-  if (!event) return <div>Загрузка...</div>;
+  const handleAddToSchedule = useCallback(async () => {
+    if (!userId || !event?.id || isAdding) return;
+    
+    try {
+      setIsAdding(true);
+      await scheduleAPI.addPlatformEvent(userId, event.id);
+      refetch();
+    } catch (err) {
+      console.error('Error adding to schedule:', err);
+      alert('Не удалось добавить событие в расписание');
+    } finally {
+      setIsAdding(false);
+    }
+  }, [userId, event?.id, isAdding, refetch]);
+
+  const handleToggleFavorite = useCallback(async () => {
+    if (!userId || !event?.id) return;
+    
+    try {
+      if (!isFavorite) {
+        await scheduleAPI.addToFavorites(userId, event.id);
+        setIsFavorite(true);
+      } else {
+        await scheduleAPI.removeFromFavorites(userId, event.id);
+        setIsFavorite(false);
+      }
+    } catch (err) {
+      console.error('Error toggling favorite:', err);
+      alert('Не удалось обновить избранное');
+    }
+  }, [userId, event?.id, isFavorite]);
 
   const formatDate = (dateString) => {
     if (!dateString) return 'Дата не указана';
     try {
-      const date = new Date(dateString.replace(' ', 'T'));
+      const date = new Date(dateString.includes('T') ? dateString : dateString.replace(' ', 'T'));
+      if (isNaN(date.getTime())) return 'Дата не указана';
       return date.toLocaleString('ru-RU', {
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
+        day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
       });
     } catch {
       return 'Дата не указана';
     }
   };
 
+  if (loading) {
+    return (
+      <PageContainer>
+        <TypeFilters activeType={activeType} onTypeChange={handleTypeChange} />
+        <Loader>Загрузка события...</Loader>
+      </PageContainer>
+    );
+  }
+
+  if (error || !event) {
+    return (
+      <PageContainer>
+        <TypeFilters activeType={activeType} onTypeChange={handleTypeChange} />
+        <ErrorMessage>
+          Не удалось загрузить событие. <br />
+          <button 
+            onClick={() => navigate(-1)} 
+            style={{ marginTop: '20px', padding: '10px 20px', background: '#854E6B', color: '#fff', border: 'none', borderRadius: '20px', cursor: 'pointer' }}
+          >
+            Назад
+          </button>
+        </ErrorMessage>
+      </PageContainer>
+    );
+  }
+
   return (
     <PageContainer>
-      {/* Белая полоса с типами */}
       <TypeFilters activeType={activeType} onTypeChange={handleTypeChange} />
 
-      {/* Фиолетовый блок с карточкой события */}
       <EventHero>
         <ContentWrapper>
           <EventCard>
             <EventImage imageUrl={event.image} />
-            <EventType>Тип мероприятия</EventType>
+            <EventType>{event.type || 'Мероприятие'}</EventType>
             <Title>{event.name}</Title>
-            <Info>📅 {formatDate(event.date_begin)}</Info>
+            <Info>📅 {formatDate(event.start || event.date_begin)}</Info>
             <Info>📍 {event.location}</Info>
-            <PriceButton>Цена</PriceButton>
+            <ButtonGroup>
+              <PriceButton>{event.price ? `${event.price} ₽` : 'Бесплатно'}</PriceButton>
+              <AddButton onClick={handleAddToSchedule} disabled={isAdding || !userId}>
+                {isAdding ? 'Добавление...' : !userId ? 'Войдите' : 'В календарь'}
+              </AddButton>
+              <FavoriteButton 
+                onClick={handleToggleFavorite}
+                isActive={isFavorite}
+                disabled={!userId}
+                aria-label={isFavorite ? 'Убрать из избранного' : 'Добавить в избранное'}
+              >
+                {isFavorite ? '⭐' : '☆'}
+              </FavoriteButton>
+            </ButtonGroup>
           </EventCard>
         </ContentWrapper>
       </EventHero>
 
-      {/* Белый блок с информацией и рекомендациями */}
       <InfoSection>
         <ContentWrapper>
           <SectionTitle>О мероприятии</SectionTitle>
           <InfoContent>
-            <p><strong>Время:</strong> {formatDate(event.date_begin)} - {formatDate(event.date_end)}</p>
+            <p><strong>Время:</strong> {formatDate(event.start || event.date_begin)} - {formatDate(event.end || event.date_end)}</p>
             <p><strong>Место:</strong> {event.location}</p>
-            <p style={{ marginTop: '20px' }}><strong>Описание:</strong></p>
-            <p>{event.description}</p>
+            {event.description && (
+              <>
+                <p style={{ marginTop: '20px' }}><strong>Описание:</strong></p>
+                <p>{event.description}</p>
+              </>
+            )}
           </InfoContent>
           
-          {/* Рекомендации (без календаря!) */}
           <div style={{ marginTop: '40px' }}>
             <SectionTitle>Рекомендации для вас</SectionTitle>
             <Recommendations />
