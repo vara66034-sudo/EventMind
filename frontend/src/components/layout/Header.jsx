@@ -1,7 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
-import CitySelector from '../common/CitySelector';
 import SearchBar from '../common/SearchBar';
 
 const HeaderContainer = styled.header`
@@ -41,6 +40,18 @@ const RightSection = styled.div`
   gap: 15px;
 `;
 
+// 🔥 Статичная кнопка города (вместо CitySelector)
+const CityButton = styled.div`
+  background: #FBE4D8;
+  color: #512A59;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: default;
+`;
+
 const ProfileLink = styled(Link)`
   color: #FFFFFF;
   text-decoration: none;
@@ -64,7 +75,7 @@ const Header = () => {
     <HeaderContainer>
       <Nav>
         <LeftSection>
-          <CitySelector />
+          <CityButton>Екатеринбург</CityButton>
           <SearchBar />
         </LeftSection>
         <RightSection>
