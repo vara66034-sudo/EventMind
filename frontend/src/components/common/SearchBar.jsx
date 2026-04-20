@@ -42,20 +42,21 @@ const SearchBar = ({ onSearch }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (onSearch) {
+    if (onSearch && query.trim()) {
       onSearch(query);
     }
   };
 
   return (
     <Container onSubmit={handleSubmit}>
+      <span style={{ marginRight: '10px', fontSize: '18px' }}>✨</span>
       <Input
         type="text"
-        placeholder="Поиск мероприятий..."
+        placeholder="Спроси EventMind AI о событиях..."
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      <SearchButton type="submit">Поиск</SearchButton>
+      <SearchButton type="submit">Спросить</SearchButton>
     </Container>
   );
 };

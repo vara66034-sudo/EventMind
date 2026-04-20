@@ -37,6 +37,34 @@ class UserSchedule(Base):
         UniqueConstraint("user_id", "event_id", name="uniq_user_platform_event"),
     )
 
+class UserInterest(Base):
+    __tablename__ = "user_interest"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    interest = Column(String, nullable=False)
+
+class UserFavorite(Base):
+    __tablename__ = "user_favorite"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    event_id = Column(Integer, nullable=False)
+    event_start_date = Column(DateTime, nullable=True)
+    reminder_sent = Column(Boolean, default=False)
+    added_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "event_id", name="uniq_user_favorite_event"),
+    )
+
+class UserInteraction(Base):
+    __tablename__ = "user_interaction"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    event_id = Column(Integer, nullable=False)
+    interaction_type = Column(String, nullable=False)  # 'view', 'register', 'favorite'
+    tags = Column(String, nullable=True)  # Comma separated
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
 class SchedulePlatformCreate(BaseModel):
     event_id: int
 
@@ -68,3 +96,6 @@ class ScheduleResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# Create tables
+Base.metadata.create_all(bind=engine)

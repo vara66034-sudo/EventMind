@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import List
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
-from .models import UserSchedule, SchedulePlatformCreate, SchedulePersonalCreate, ScheduleUpdate, ScheduleResponse
+from .models import UserSchedule, SchedulePlatformCreate, SchedulePersonalCreate, ScheduleUpdate, ScheduleResponse, UserFavorite
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -88,6 +88,26 @@ def remove_schedule(db: Session, user_id: int, schedule_id: int) -> bool:
     db.commit()
     return True
 
+def add_favorite(db: Session, user_id: int, event_id: int, event_start_date: datetime = None) -> bool:
+    existing = db.query(UserFavorite).filter(UserFavorite.user_id == user_id, UserFavorite.event_id == event_id).first()
+    if existing: return True
+    new_fav = UserFavorite(user_id=user_id, event_id=event_id, event_start_date=event_start_date)
+    db.add(new_fav)
+    db.commit()
+    return True
+
+def remove_favorite(db: Session, user_id: int, event_id: int) -> bool:
+    rec = db.query(UserFavorite).filter(UserFavorite.user_id == user_id, UserFavorite.event_id == event_id).first()
+    if not rec: return False
+    db.delete(rec)
+    db.commit()
+    return True
+
+def get_favorites(db: Session, user_id: int) -> List[int]:
+    records = db.query(UserFavorite).filter(UserFavorite.user_id == user_id).all()
+    return [rec.event_id for rec in records]
+
+
 def export_user_schedule_ics(db: Session, user_id: int) -> str:
     records = db.query(UserSchedule).filter(UserSchedule.user_id == user_id, UserSchedule.status == "planned").all()
     events = [format_schedule_response(rec).model_dump() for rec in records]
@@ -104,6 +124,17 @@ def run_reminder_job(db_session_factory, user_email_map):
     with db_session_factory() as db:
         now = datetime.utcnow()
         tomorrow = now + timedelta(hours=23.5)
+        
+        fav_to_remind = db.query(UserFavorite).filter(UserFavorite.reminder_sent == False, UserFavorite.event_start_date >= now, UserFavorite.event_start_date <= tomorrow).all()
+        for fav in fav_to_remind:
+            email = user_email_map.get(fav.user_id)
+            if email:
+                try:
+                    send_email(to=email, subject=f"⏰ Напоминание об избранном", body=f"<p>Ваше избранное мероприятие <b>#{fav.event_id}</b> состоится завтра в {fav.event_start_date.strftime('%H:%M')}. Не забудьте прийти на него!</p>")
+                    fav.reminder_sent = True
+                    db.commit()
+                except Exception: pass
+
         to_remind = db.query(UserSchedule).filter(UserSchedule.status == "planned", UserSchedule.reminder_sent == False, UserSchedule.personal_start >= now, UserSchedule.personal_start <= tomorrow).all()
         for rec in to_remind:
             email = user_email_map.get(rec.user_id)

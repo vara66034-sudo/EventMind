@@ -5,7 +5,8 @@ from typing import List, Dict, Optional
 from datetime import datetime
 from collections import defaultdict
 
-from ..scheduler.user_calendar import get_user_calendar
+from ..calendar.user_calendar import get_user_calendar
+from ...schedule.models import SessionLocal, UserInterest, UserInteraction
 
 logger = logging.getLogger('EventMind.Recommender')
 
@@ -14,9 +15,7 @@ class Recommender:
     
     def __init__(self):
         """Initialize the recommender"""
-        self.user_profiles = {}
         self.event_vectors = {}
-        self.interaction_history = defaultdict(list)
         
         logger.info("Recommender initialized")
     
@@ -35,10 +34,12 @@ class Recommender:
             logger.info(f"User {user_id} has no interests, returning popular events")
             return self._get_popular_events(events, limit)
         
+        interactions = self._get_user_interactions(user_id)
+        
         scored_events = []
         for event in events:
             score = self._calculate_relevance(event, user_interests)
-            score = self._apply_interaction_boost(user_id, event, score)
+            score = self._apply_interaction_boost(interactions, event, score)
             
             if score > 0:
                 result = {
@@ -71,6 +72,7 @@ class Recommender:
 
         user_interests = self._get_user_interests(user_id)
         calendar = get_user_calendar(user_id)
+        interactions = self._get_user_interactions(user_id)
 
         scored_events = []
         for event in events:
@@ -91,7 +93,7 @@ class Recommender:
 
             # Итоговая оценка: 60% релевантность, 40% доступность
             final_score = relevance_score * 0.6 + (1.0 if available else 0.0) * 0.4
-            final_score = self._apply_interaction_boost(user_id, event, final_score)
+            final_score = self._apply_interaction_boost(interactions, event, final_score)
 
             if final_score > 0:
                 result = {
@@ -110,8 +112,10 @@ class Recommender:
         return scored_events[:limit]
     
     def _get_user_interests(self, user_id: int) -> List[str]:
-        if user_id in self.user_profiles:
-            return self.user_profiles[user_id]
+        with SessionLocal() as db:
+            interests = db.query(UserInterest.interest).filter(UserInterest.user_id == user_id).all()
+        if interests:
+            return [i[0] for i in interests]
         return ['Python', 'AI', 'Tech', 'Startup']
     
     def _calculate_relevance(self, event: Dict, user_interests: List[str]) -> float:
@@ -139,16 +143,17 @@ class Recommender:
                     tags.append(kw.capitalize())
         return tags
     
-    def _apply_interaction_boost(self, user_id: int, event: Dict, base_score: float) -> float:
-        interactions = self.interaction_history.get(user_id, [])
+    def _apply_interaction_boost(self, interactions: List[Dict], event: Dict, base_score: float) -> float:
         event_tags = set(self._extract_event_tags(event))
         boost = 0.0
         for interaction in interactions:
-            if interaction.get('type') == 'view':
-                if event_tags & set(interaction.get('tags', [])):
+            int_tags = set(interaction.get('tags', []))
+            if event_tags & int_tags:
+                if interaction.get('type') == 'view':
                     boost += 0.05
-            elif interaction.get('type') == 'register':
-                if event_tags & set(interaction.get('tags', [])):
+                elif interaction.get('type') == 'favorite':
+                    boost += 0.10
+                elif interaction.get('type') == 'register':
                     boost += 0.15
         return min(base_score + boost, 1.0)
     
@@ -169,18 +174,40 @@ class Recommender:
             return "Popular event in your area"
     
     def record_interaction(self, user_id: int, event_id: int, interaction_type: str, tags: List[str] = None):
-        self.interaction_history[user_id].append({
-            'event_id': event_id,
-            'type': interaction_type,
-            'tags': tags or [],
-            'timestamp': datetime.now().isoformat()
-        })
-        if len(self.interaction_history[user_id]) > 100:
-            self.interaction_history[user_id] = self.interaction_history[user_id][-100:]
+        with SessionLocal() as db:
+            interaction_count = db.query(UserInteraction).filter(UserInteraction.user_id == user_id).count()
+            if interaction_count >= 100:
+                oldest = db.query(UserInteraction).filter(UserInteraction.user_id == user_id).order_by(UserInteraction.timestamp.asc()).first()
+                if oldest:
+                    db.delete(oldest)
+            
+            tags_str = ",".join(tags) if tags else ""
+            db.add(UserInteraction(
+                user_id=user_id,
+                event_id=event_id,
+                interaction_type=interaction_type,
+                tags=tags_str
+            ))
+            db.commit()
+
         logger.info(f"Recorded {interaction_type} for user {user_id} on event {event_id}")
     
+    def _get_user_interactions(self, user_id: int) -> List[Dict]:
+        with SessionLocal() as db:
+            records = db.query(UserInteraction).filter(UserInteraction.user_id == user_id).all()
+            return [{
+                'event_id': r.event_id,
+                'type': r.interaction_type,
+                'tags': r.tags.split(',') if r.tags else [],
+                'timestamp': r.timestamp.isoformat() if r.timestamp else ''
+            } for r in records]
+    
     def update_user_profile(self, user_id: int, interests: List[str]):
-        self.user_profiles[user_id] = interests
+        with SessionLocal() as db:
+            db.query(UserInterest).filter(UserInterest.user_id == user_id).delete()
+            for interest in interests:
+                db.add(UserInterest(user_id=user_id, interest=interest))
+            db.commit()
         logger.info(f"Updated profile for user {user_id}: {interests}")
     
     def get_similar_events(self, event_id: int, events: List[Dict], limit: int = 5) -> List[Dict]:

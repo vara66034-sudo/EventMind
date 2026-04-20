@@ -106,6 +106,16 @@ export const eventsAPI = {
   },
   search: async (query, params = {}) => 
     sendAction('search_events', { q: query, ...params }),
+
+  // Спросить ИИ
+  askAi: (question) => {
+    // В main.py endpoint /api/events принимает AuthRequest и вызывает handle_request
+    // Мы передаем action: 'ask_ai' и question
+    return api.post('/api/auth', {
+      action: 'ask_ai',
+      question: question
+    });
+  },
 };
 
 export const notificationsAPI = {

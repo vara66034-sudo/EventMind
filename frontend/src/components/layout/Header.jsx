@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 import SearchBar from '../common/SearchBar';
+import AiResponseModal from '../common/AiResponseModal';
+import { eventsAPI } from '../../services/api';
 
 const HeaderContainer = styled.header`
   background: #190019;
@@ -71,12 +73,38 @@ const Divider = styled.span`
 `;
 
 const Header = () => {
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiAnswer, setAiAnswer] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+
+  const handleSearch = async (query) => {
+    setAiQuestion(query);
+    setIsAiModalOpen(true);
+    setIsAiLoading(true);
+    setAiAnswer('');
+
+    try {
+      const response = await eventsAPI.askAi(query);
+      if (response.data && response.data.success) {
+        setAiAnswer(response.data.data.answer);
+      } else {
+        setAiAnswer('Извините, возникла ошибка при получении ответа от ИИ.');
+      }
+    } catch (error) {
+      console.error('Error asking AI:', error);
+      setAiAnswer('Не удалось связаться с ИИ. Проверьте подключение к серверу.');
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
   return (
     <HeaderContainer>
       <Nav>
         <LeftSection>
           <CityButton>Екатеринбург</CityButton>
-          <SearchBar />
+          <SearchBar onSearch={handleSearch} />
         </LeftSection>
         <RightSection>
           <ProfileLink to="/">События</ProfileLink>
@@ -86,6 +114,14 @@ const Header = () => {
           <ProfileLink to="/login">Войти</ProfileLink>
         </RightSection>
       </Nav>
+
+      <AiResponseModal 
+        isOpen={isAiModalOpen} 
+        onClose={() => setIsAiModalOpen(false)}
+        question={aiQuestion}
+        answer={aiAnswer}
+        isLoading={isAiLoading}
+      />
     </HeaderContainer>
   );
 };

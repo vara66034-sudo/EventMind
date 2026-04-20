@@ -6,11 +6,12 @@ from typing import Dict, Any, Optional, List
 import xmlrpc.client
 import hashlib
 import secrets
-
-from .agent_core import get_agent
-from .recommendations import get_recommender
-from ..scheduler.user_calendar import get_user_calendar, TimeSlot
-from .llm_service import get_llm_service
+from ...services.agent.orchestrator import get_agent
+from ...services.recommendations.service import get_recommender
+from ...services.calendar.user_calendar import get_user_calendar, TimeSlot
+from ...schedule.models import SessionLocal
+from ...schedule.services import add_favorite, remove_favorite, get_favorites
+from ...integrations.llm.gigachat_service import get_llm_service
 
 logger = logging.getLogger('EventMind.API')
 
@@ -25,12 +26,18 @@ class AgentAPI:
         self.odoo_db = odoo_config.get('db', 'eventmind')
         self.odoo_admin = odoo_config.get('username', 'admin')
         self.odoo_admin_pw = odoo_config.get('password', 'admin')
+        self._events_cache = {'timestamp': None, 'data': []}
         logger.info("AgentAPI initialized")
 
     # -------------------- Вспомогательные методы --------------------
 
-    def _fetch_events_from_odoo(self, date_from: datetime = None, date_to: datetime = None) -> List[Dict]:
-        """Загружает события из Odoo через XML-RPC"""
+    def _fetch_events_from_odoo(self, date_from: datetime = None, date_to: datetime = None, force_refresh: bool = False) -> List[Dict]:
+        """Загружает события из Odoo через XML-RPC (с кэшированием)"""
+        now = datetime.now()
+        if not force_refresh and not date_from and not date_to:
+            if self._events_cache['timestamp'] and (now - self._events_cache['timestamp']).total_seconds() < 300:
+                return self._events_cache['data']
+        
         try:
             common = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/common")
             uid = common.authenticate(self.odoo_db, self.odoo_admin, self.odoo_admin_pw, {})
@@ -61,6 +68,11 @@ class AgentAPI:
                     e['tags'] = [t['name'] for t in tags]
                 else:
                     e['tags'] = []
+            
+            if not date_from and not date_to:
+                self._events_cache['timestamp'] = now
+                self._events_cache['data'] = events
+                
             return events
         except Exception as e:
             logger.error(f"Failed to fetch events from Odoo: {e}")
@@ -181,7 +193,7 @@ class AgentAPI:
             logger.error(f"Odoo connection error: {e}")
             return None
 
-    def register_user(self, email: str, password: str, name: str = None) -> Dict:
+    def register_user(self, email: str, password: str, name: str = None, interests: List[str] = None) -> Dict:
         try:
             admin_conn = self._get_odoo_connection(self.odoo_admin, self.odoo_admin_pw)
             if not admin_conn:
@@ -216,6 +228,10 @@ class AgentAPI:
             )
 
             logger.info(f"New user registered: {email} (ID: {user_id})")
+
+            if interests:
+                self.update_user_profile(user_id=user_id, name=name, interests=interests)
+
             return {
                 'success': True,
                 'data': {
@@ -366,6 +382,24 @@ class AgentAPI:
             logger.error(f"Error in recommendations_with_schedule: {e}")
             return {'success': False, 'error': str(e)}
 
+    def ask_ai(self, question: str) -> Dict:
+        try:
+            llm_service = get_llm_service()
+            # Пытаемся получить список событий для контекста, если возможно
+            events = self._fetch_events_from_odoo()
+            answer = llm_service.ask_ai_question(question, context_events=events)
+            return {
+                'success': True,
+                'data': {
+                    'answer': answer,
+                    'question': question
+                },
+                'timestamp': datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Error in ask_ai: {e}")
+            return {'success': False, 'error': str(e)}
+
     # -------------------- Единый обработчик запросов --------------------
 
     def handle_request(self, request_data: Dict) -> Dict:
@@ -408,7 +442,8 @@ class AgentAPI:
             return self.register_user(
                 email=request_data.get('email'),
                 password=request_data.get('password'),
-                name=request_data.get('name')
+                name=request_data.get('name'),
+                interests=request_data.get('interests')
             )
         elif action == 'login':
             return self.login_user(
@@ -443,6 +478,42 @@ class AgentAPI:
                 user_id=request_data.get('user_id'),
                 limit=request_data.get('limit', 10)
             )
+        elif action == 'ask_ai':
+            return self.ask_ai(
+                question=request_data.get('question')
+            )
+        # Избранное
+        elif action == 'add_favorite':
+            event_id = request_data.get('event_id')
+            user_id = request_data.get('user_id')
+            events = self._fetch_events_from_odoo()
+            event = next((e for e in events if e.get('id') == event_id), None)
+            event_date = None
+            tags = []
+            if event:
+                if event.get('date_begin'):
+                    event_date = datetime.fromisoformat(event['date_begin'].replace('Z', '+00:00'))
+                tags = event.get('tags', [])
+            
+            with SessionLocal() as db:
+                add_favorite(db, user_id=user_id, event_id=event_id, event_start_date=event_date)
+            
+            self.recommender.record_interaction(user_id=user_id, event_id=event_id, interaction_type='favorite', tags=tags)
+            
+            return {'success': True, 'message': 'Added to favorites'}
+            
+        elif action == 'remove_favorite':
+            user_id = request_data.get('user_id')
+            event_id = request_data.get('event_id')
+            with SessionLocal() as db:
+                success = remove_favorite(db, user_id=user_id, event_id=event_id)
+            return {'success': success}
+            
+        elif action == 'get_favorites':
+            user_id = request_data.get('user_id')
+            with SessionLocal() as db:
+                fav_ids = get_favorites(db, user_id=user_id)
+            return {'success': True, 'data': fav_ids}
         else:
             return {'success': False, 'error': f'Unknown action: {action}'}
 
