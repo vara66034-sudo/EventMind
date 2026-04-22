@@ -48,7 +48,7 @@
 
 ---
 
-## 🛠 Технологический стек
+## Технологический стек
 
 * **Бэкенд:** FastAPI, Python 3.10+, SQLAlchemy, APScheduler
 * **Фронтенд:** React 18, React Router, Styled-Components, Axios
