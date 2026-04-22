@@ -21,7 +21,6 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
-
 # Временные файлы
 *.tmp
 *.temp
