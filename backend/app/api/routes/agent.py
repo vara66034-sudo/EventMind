@@ -9,8 +9,8 @@ import secrets
 from ...services.agent.orchestrator import get_agent
 from ...services.recommendations.service import get_recommender
 from ...services.calendar.user_calendar import get_user_calendar, TimeSlot
-from ...schedule.models import SessionLocal
-from ...schedule.services import add_favorite, remove_favorite, get_favorites
+from ...schedule.models import SessionLocal, UserSchedule, SchedulePersonalCreate
+from ...schedule.services import add_favorite, remove_favorite, get_favorites, add_personal_event
 from ...integrations.llm.gigachat_service import get_llm_service
 
 logger = logging.getLogger('EventMind.API')
@@ -28,6 +28,21 @@ class AgentAPI:
         self.odoo_admin_pw = odoo_config.get('password', 'admin')
         self._events_cache = {'timestamp': None, 'data': []}
         logger.info("AgentAPI initialized")
+
+    def _sync_calendar(self, user_id: int):
+        from datetime import timedelta
+        calendar = get_user_calendar(user_id)
+        calendar._busy_slots = []
+        with SessionLocal() as db:
+            schedules = db.query(UserSchedule).filter(UserSchedule.user_id == user_id, UserSchedule.is_personal == True).all()
+            for s in schedules:
+                if s.personal_start:
+                    calendar.add_busy_slot(TimeSlot(
+                        start=s.personal_start,
+                        end=s.personal_end or s.personal_start + timedelta(hours=2),
+                        title=s.personal_title or 'Занято'
+                    ))
+        return calendar
 
     # -------------------- Вспомогательные методы --------------------
 
@@ -313,73 +328,12 @@ class AgentAPI:
 
     def get_schedule(self, user_id: int, start_date: str) -> Dict:
         try:
-            calendar = get_user_calendar(user_id)
+            calendar = self._sync_calendar(user_id)
             start = datetime.fromisoformat(start_date)
             schedule = calendar.get_week_schedule(start)
             return {'success': True, 'data': schedule}
         except Exception as e:
             logger.error(f"Error getting schedule: {e}")
-            return {'success': False, 'error': str(e)}
-
-    def get_recommendations_with_schedule(self, user_id: int, limit: int = 10) -> Dict:
-        """
-        Возвращает рекомендации с учётом занятости пользователя.
-        Сначала получаем обычные рекомендации (с оценкой релевантности),
-        затем проверяем доступность времени и пересчитываем итоговую оценку.
-        """
-        try:
-            # Загружаем события
-            events = self._fetch_events_from_odoo()
-            if not events:
-                return {'success': True, 'data': [], 'message': 'No events available'}
-
-            # Получаем рекомендации с релевантностью
-            recs = self.recommender.get_recommendations(
-                user_id=user_id,
-                events=events,
-                limit=100,  # берём больше, чтобы потом отфильтровать
-                include_explanation=True
-            )
-
-            calendar = get_user_calendar(user_id)
-            scored = []
-
-            for rec in recs:
-                event = rec['event']
-                relevance = rec['score']
-
-                # Проверяем доступность
-                available = False
-                if event.get('date_begin'):
-                    try:
-                        event_date = datetime.fromisoformat(event['date_begin'].replace('Z', '+00:00'))
-                        available = calendar.is_available(event_date, duration_hours=2)
-                    except Exception as e:
-                        logger.error(f"Error parsing event date: {e}")
-                        available = True
-
-                # Итоговая оценка: 60% релевантность, 40% доступность
-                final_score = relevance * 0.6 + (1.0 if available else 0.0) * 0.4
-                if final_score > 0:
-                    result = {
-                        'event': event,
-                        'score': final_score,
-                        'relevance_score': relevance,
-                        'available': available,
-                        'id': event.get('id')
-                    }
-                    if rec.get('explanation'):
-                        result['explanation'] = rec['explanation']
-                    scored.append(result)
-
-            scored.sort(key=lambda x: -x['score'])
-            return {
-                'success': True,
-                'data': scored[:limit],
-                'user_id': user_id
-            }
-        except Exception as e:
-            logger.error(f"Error in recommendations_with_schedule: {e}")
             return {'success': False, 'error': str(e)}
 
     def ask_ai(self, question: str) -> Dict:
@@ -502,6 +456,20 @@ class AgentAPI:
             
             return {'success': True, 'message': 'Added to favorites'}
             
+        elif action == 'add_personal_event':
+            data = SchedulePersonalCreate(
+                title=request_data.get('title', 'Занято'),
+                start=datetime.fromisoformat(request_data['start']),
+                end=datetime.fromisoformat(request_data['end']) if request_data.get('end') else None,
+                description=request_data.get('description', ''),
+                location=request_data.get('location', '')
+            )
+            user_email = request_data.get('email', '')
+            with SessionLocal() as db:
+                result = add_personal_event(db, request_data['user_id'], data, user_email)
+            self._sync_calendar(request_data['user_id'])
+            return {'success': True, 'data': result.model_dump()}
+            
         elif action == 'remove_favorite':
             user_id = request_data.get('user_id')
             event_id = request_data.get('event_id')
@@ -513,7 +481,14 @@ class AgentAPI:
             user_id = request_data.get('user_id')
             with SessionLocal() as db:
                 fav_ids = get_favorites(db, user_id=user_id)
-            return {'success': True, 'data': fav_ids}
+            
+            if fav_ids:
+                events = self._fetch_events_from_odoo()
+                fav_events = [e for e in events if e.get('id') in fav_ids]
+            else:
+                fav_events = []
+            
+            return {'success': True, 'data': fav_events}
         else:
             return {'success': False, 'error': f'Unknown action: {action}'}
 
@@ -533,7 +508,7 @@ class AgentAPI:
                 include_explanation=True
             )
 
-            calendar = get_user_calendar(user_id)
+            calendar = self._sync_calendar(user_id)
             scored = []
 
             for rec in recs:

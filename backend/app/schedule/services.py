@@ -48,7 +48,7 @@ def get_user_schedule(db: Session, user_id: int, status: str = "planned") -> Lis
     records = db.query(UserSchedule).filter(UserSchedule.user_id == user_id, UserSchedule.status == status).all()
     return [format_schedule_response(rec) for rec in records]
 
-def add_platform_event(db: Session, user_id: int,  SchedulePlatformCreate, user_email: str) -> ScheduleResponse:
+def add_platform_event(db: Session, user_id: int, data: SchedulePlatformCreate, user_email: str) -> ScheduleResponse:
     existing = db.query(UserSchedule).filter(UserSchedule.user_id == user_id, UserSchedule.event_id == data.event_id).first()
     if existing: return format_schedule_response(existing)
     new_rec = UserSchedule(user_id=user_id, event_id=data.event_id, is_personal=False, status="planned")
@@ -56,19 +56,19 @@ def add_platform_event(db: Session, user_id: int,  SchedulePlatformCreate, user_
     db.commit()
     db.refresh(new_rec)
     try: send_email(to=user_email, subject="✅ Мероприятие добавлено в расписание", body=f"<p>Событие <b>{new_rec.event_id}</b> добавлено в календарь.</p>")
-    except Exception: pass
+    except Exception as e: import logging; logging.getLogger(__name__).error(f"Failed to send email: {e}")
     return format_schedule_response(new_rec)
 
-def add_personal_event(db: Session, user_id: int,  SchedulePersonalCreate, user_email: str) -> ScheduleResponse:
+def add_personal_event(db: Session, user_id: int, data: SchedulePersonalCreate, user_email: str) -> ScheduleResponse:
     new_rec = UserSchedule(user_id=user_id, is_personal=True, personal_title=data.title, personal_start=data.start, personal_end=data.end, personal_description=data.description or "", personal_location=data.location or "", status="planned")
     db.add(new_rec)
     db.commit()
     db.refresh(new_rec)
     try: send_email(to=user_email, subject=f"✅ Личное событие добавлено: {data.title}", body=f"<p>Событие <b>{data.title}</b> создано в календаре.</p>")
-    except Exception: pass
+    except Exception as e: import logging; logging.getLogger(__name__).error(f"Failed to send email: {e}")
     return format_schedule_response(new_rec)
 
-def update_personal_event(db: Session, user_id: int, schedule_id: int,  ScheduleUpdate) -> ScheduleResponse:
+def update_personal_event(db: Session, user_id: int, schedule_id: int, data: ScheduleUpdate) -> ScheduleResponse:
     rec = db.query(UserSchedule).filter(UserSchedule.id == schedule_id, UserSchedule.user_id == user_id, UserSchedule.is_personal == True).first()
     if not rec: raise ValueError("Record not found or access denied")
     if data.title is not None: rec.personal_title = data.title
@@ -115,32 +115,34 @@ def export_user_schedule_ics(db: Session, user_id: int) -> str:
 
 scheduler = BackgroundScheduler()
 
-def start_scheduler(db_session_factory, user_email_map):
+def start_scheduler(db_session_factory, get_email_func):
     if not scheduler.running:
-        scheduler.add_job(func=run_reminder_job, trigger="interval", hours=1, args=[db_session_factory, user_email_map], id="eventmind_reminders", replace_existing=True)
+        scheduler.add_job(func=run_reminder_job, trigger="interval", hours=1, args=[db_session_factory, get_email_func], id="eventmind_reminders", replace_existing=True)
         scheduler.start()
 
-def run_reminder_job(db_session_factory, user_email_map):
+def run_reminder_job(db_session_factory, get_email_func):
     with db_session_factory() as db:
         now = datetime.utcnow()
         tomorrow = now + timedelta(hours=23.5)
         
         fav_to_remind = db.query(UserFavorite).filter(UserFavorite.reminder_sent == False, UserFavorite.event_start_date >= now, UserFavorite.event_start_date <= tomorrow).all()
         for fav in fav_to_remind:
-            email = user_email_map.get(fav.user_id)
+            email = get_email_func(fav.user_id)
             if email:
                 try:
                     send_email(to=email, subject=f"⏰ Напоминание об избранном", body=f"<p>Ваше избранное мероприятие <b>#{fav.event_id}</b> состоится завтра в {fav.event_start_date.strftime('%H:%M')}. Не забудьте прийти на него!</p>")
                     fav.reminder_sent = True
                     db.commit()
-                except Exception: pass
+                except Exception as e:
+                    import logging; logging.getLogger(__name__).error(f"Failed to send email: {e}")
 
         to_remind = db.query(UserSchedule).filter(UserSchedule.status == "planned", UserSchedule.reminder_sent == False, UserSchedule.personal_start >= now, UserSchedule.personal_start <= tomorrow).all()
         for rec in to_remind:
-            email = user_email_map.get(rec.user_id)
+            email = get_email_func(rec.user_id)
             if email:
                 try:
                     send_email(to=email, subject=f"⏰ Напоминание: {rec.personal_title}", body=f"<p>Мероприятие <b>{rec.personal_title}</b> состоится завтра в {rec.personal_start.strftime('%H:%M')}.</p>")
                     rec.reminder_sent = True
                     db.commit()
-                except Exception: pass
+                except Exception as e:
+                    import logging; logging.getLogger(__name__).error(f"Failed to send email: {e}")

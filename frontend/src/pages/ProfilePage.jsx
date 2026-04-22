@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 import TypeFilters from '../components/events/TypeFilters';
-import { scheduleAPI, userAPI } from '../services/api';
+import { scheduleAPI, userAPI, eventsAPI } from '../services/api';
 import { AVAILABLE_TAGS } from '../constants/tags';
 
 const PageContainer = styled.div`
@@ -340,9 +340,10 @@ const RecommendationsGrid = styled.div`
 const RecommendationCard = styled.div`
   background: #854E6B;
   border-radius: 16px;
-  height: 120px;
+  min-height: 120px;
   cursor: pointer;
   transition: transform 0.3s ease;
+  overflow: hidden;
   
   &:hover {
     transform: translateY(-5px);
@@ -587,14 +588,17 @@ const ProfilePage = () => {
 
       setInterests(profile.interests || []);
       
-      setRecommendations([
-        { id: 1, name: 'Рекомендация 1' },
-        { id: 2, name: 'Рекомендация 2' },
-        { id: 3, name: 'Рекомендация 3' },
-        { id: 4, name: 'Рекомендация 4' },
-        { id: 5, name: 'Рекомендация 5' },
-        { id: 6, name: 'Рекомендация 6' },
-      ]);
+      try {
+        const recsResponse = await eventsAPI.getRecommendationsWithSchedule(userId, 6);
+        if (recsResponse && recsResponse.success && recsResponse.data) {
+          setRecommendations(recsResponse.data);
+        } else {
+          setRecommendations([]);
+        }
+      } catch (err) {
+        console.error("Error loading recommendations:", err);
+        setRecommendations([]);
+      }
       
     } catch (error) {
       console.error('Error loading profile:', error);
@@ -607,6 +611,7 @@ const ProfilePage = () => {
         avatar: null,
       });
       setInterests(['Концерты', 'Театр', 'Выставки', 'Спорт', 'Музыка']);
+      setRecommendations([]);
     } finally {
       setLoading(false);
     }
@@ -641,14 +646,26 @@ const ProfilePage = () => {
   }, [isModalOpen, loadSchedule, userId]);
 
   const scheduleByDate = useMemo(() => {
-    return schedule.reduce((acc, event) => {
+    const combined = [...schedule];
+    
+    favorites.forEach(fav => {
+      if (fav.date_begin || fav.start) {
+        combined.push({
+          start: fav.date_begin || fav.start,
+          name: fav.name || `Избранное #${fav.id}`,
+          type: 'favorite',
+        });
+      }
+    });
+
+    return combined.reduce((acc, event) => {
       if (!event.start) return acc;
       const dateKey = event.start.split('T')[0];
       if (!acc[dateKey]) acc[dateKey] = [];
       acc[dateKey].push(event);
       return acc;
     }, {});
-  }, [schedule]);
+  }, [schedule, favorites]);
 
   const handleDayClick = (day) => {
     if (!day) return;
@@ -902,9 +919,23 @@ const ProfilePage = () => {
               <SectionTitle>Рекомендации для вас</SectionTitle>
               
               <RecommendationsGrid>
-                {recommendations.map((rec) => (
-                  <RecommendationCard key={rec.id} />
-                ))}
+                {recommendations.length > 0 ? recommendations.map((rec, idx) => (
+                  <RecommendationCard key={rec.id || idx}>
+                    <div style={{ padding: '15px', color: '#fff', height: '100%', boxSizing: 'border-box' }}>
+                      <h4 style={{ margin: '0 0 10px 0', fontSize: '15px' }}>{rec.event?.name || 'Рекомендация'}</h4>
+                      <p style={{ fontSize: '12px', opacity: 0.8, margin: '0 0 10px 0' }}>
+                        {rec.event?.date_begin ? new Date(rec.event.date_begin.replace('Z', '')).toLocaleString('ru-RU', {day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'}) : 'Скоро'}
+                      </p>
+                      {rec.explanation && (
+                        <p style={{ fontSize: '12px', margin: 0, fontStyle: 'italic', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                          {rec.explanation}
+                        </p>
+                      )}
+                    </div>
+                  </RecommendationCard>
+                )) : (
+                  <p style={{ color: '#512A59' }}>Нет доступных рекомендаций.</p>
+                )}
               </RecommendationsGrid>
             </>
           )}
@@ -951,10 +982,12 @@ const ProfilePage = () => {
             {scheduleByDate[selectedDate.toISOString().split('T')[0]]?.length > 0 ? (
               <EventList>
                 {scheduleByDate[selectedDate.toISOString().split('T')[0]].map((event, i) => (
-                  <EventListItem key={i}>
+                  <EventListItem key={i} style={event.type === 'favorite' ? { background: '#DFB6B2' } : {}}>
                     <div>
                       <strong>{formatTime(event.start)}</strong>
-                      <div style={{ fontSize: '13px', color: '#512A59' }}>{event.name}</div>
+                      <div style={{ fontSize: '13px', color: '#512A59' }}>
+                        {event.type === 'favorite' ? '⭐ ' : ''}{event.name}
+                      </div>
                     </div>
                   </EventListItem>
                 ))}

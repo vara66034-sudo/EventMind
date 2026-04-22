@@ -95,6 +95,8 @@ export const eventsAPI = {
     return sendAction('get_events', params);
   },
   getById: async (id) => sendAction('get_event', { event_id: id }),
+  getRecommendationsWithSchedule: async (userId, limit = 6) => 
+    sendAction('recommendations_with_schedule', { user_id: userId, limit }),
   register: async (eventId, userData) => 
     sendAction('register_for_event', { event_id: eventId, ...userData }),
   getIcs: async (id) => {

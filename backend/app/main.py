@@ -7,6 +7,9 @@ from pathlib import Path
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .agent.core.api import get_api
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI(title="EventMind API")
 
@@ -44,6 +47,31 @@ async def auth_handler(request: AuthRequest):
     api = get_api()
     return api.handle_request(request.dict())
 
+def get_user_email(user_id: int) -> Optional[str]:
+    try:
+        api = get_api()
+        admin_conn = api._get_odoo_connection(api.odoo_admin, api.odoo_admin_pw)
+        if not admin_conn:
+            return None
+        users = admin_conn['models'].execute_kw(
+            api.odoo_db, admin_conn['uid'], api.odoo_admin_pw,
+            'res.users', 'read',
+            [[user_id]],
+            {'fields': ['login']}
+        )
+        if users:
+            return users[0].get('login')
+    except Exception as e:
+        import logging; logging.getLogger(__name__).error(f"Cannot fetch email for user {user_id}: {e}")
+    return None
+
+@app.on_event("startup")
+async def startup_event():
+    from .schedule.services import start_scheduler
+    from .schedule.models import SessionLocal
+    start_scheduler(SessionLocal, get_user_email)
+    import logging
+    logging.info("Scheduler started successfully")
 
 @app.get("/api/events")
 async def get_events(request: AuthRequest):
