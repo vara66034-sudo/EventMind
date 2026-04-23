@@ -22,7 +22,7 @@ class AgentAPI:
         self.agent = get_agent()
         self.recommender = get_recommender()
         odoo_config = self.agent.config.get('odoo', {})
-        self.odoo_url = odoo_config.get('url', 'http://localhost:8069')
+        self.odoo_url = odoo_config.get('url', 'http://localhost:8099')
         self.odoo_db = odoo_config.get('db', 'eventmind')
         self.odoo_admin = odoo_config.get('username', 'admin')
         self.odoo_admin_pw = odoo_config.get('password', 'admin')

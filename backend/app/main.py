@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .agent.core.api import get_api
+from .api.routes.agent import get_api
 from dotenv import load_dotenv
 
 load_dotenv()
