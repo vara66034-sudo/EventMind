@@ -3,9 +3,9 @@ EventMind AI Agent - Core Module
 Author: Nastya
 """
 
-from .agent_core import EventMindAgent, get_agent
-from .recommendations import Recommender, get_recommender
-from .api import AgentAPI, get_api
+from ...services.agent.orchestrator import EventMindAgent, get_agent
+from ...services.recommendations.service import Recommender, get_recommender
+from ...api.routes.agent import AgentAPI, get_api
 
 __all__ = [
     'EventMindAgent', 'get_agent',

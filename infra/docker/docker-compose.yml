@@ -12,31 +12,30 @@ services:
       - teamEventMind2_db_data:/var/lib/postgresql/data
     restart: unless-stopped
 
-  # odoo:
-  #   image: odoo:18
-  #   container_name: teamEventMind2-odoo
-  #   depends_on:
-  #     - db
-  #   ports:
-  #     - "8075:8069"
-  #   environment:
-  #     HOST: db
-  #     USER: odoo
-  #     PASSWORD: odoo
-  #   volumes:
-  #     - teamEventMind2_odoo_data:/var/lib/odoo
-  #     - ./:/mnt/extra-addons/EventMind
-  #   restart: unless-stopped
+  odoo:
+    image: odoo:18
+    container_name: teamEventMind2-odoo
+    depends_on:
+      - db
+    ports:
+      - "8075:8069"
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: odoo
+    volumes:
+      - teamEventMind2_odoo_data:/var/lib/odoo
+    restart: unless-stopped
 
   backend:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: infra/docker/Dockerfile
     depends_on:
       - db
     container_name: teamEventMind2-backend
     ports:
-      - "8075:8069"
+      - "8099:8099"
     restart: unless-stopped
 
 volumes:
