@@ -8,9 +8,9 @@ load_dotenv()
 
 class DBManager:
     def __init__(self):
-        self.conn_info = os.getenv("DATABASE_URL")
+        self.conn_info = os.getenv("DATABASE_URL_TAG")
         if not self.conn_info:
-            raise ValueError("DATABASE_URL не найден! Проверь файл .env в корне проекта.")
+            raise ValueError("DATABASE_URL_TAG не найден! Проверь файл .env в корне проекта.")
 
     def get_unprocessed_events(self):
         # Используем менеджер контекста, чтобы не забывать закрывать соединения
