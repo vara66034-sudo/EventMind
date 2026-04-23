@@ -31,7 +31,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: infra/docker/Dockerfile
     depends_on:
       - db
     container_name: teamEventMind2-backend
