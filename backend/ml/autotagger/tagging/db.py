@@ -12,25 +12,17 @@ class DBManager:
         if not self.conn_info:
             raise ValueError("DATABASE_URL не найден! Проверь файл .env в корне проекта.")
 
-    def get_unprocessed_events(self, limit_val: int = 20):
-        """Берем события для тестов (без учета tags IS NULL для перезаписи)"""
+    def get_unprocessed_events(self):
+        # Используем менеджер контекста, чтобы не забывать закрывать соединения
         with psycopg.connect(self.conn_info, row_factory=dict_row) as conn:
             with conn.cursor() as cur:
-                # Используем %s для psycopg
-                cur.execute("SELECT id, title, description FROM events LIMIT %s", (limit_val,))
+                cur.execute("SELECT id, title, description FROM events WHERE tags IS NULL LIMIT 10")
                 return cur.fetchall()
 
-    def update_event_data(self, id: int, tags: list, embedding: list):
-        """Обновляем данные события"""
+    def update_event_data(self, id, tags, embedding):
         with psycopg.connect(self.conn_info) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """
-                    UPDATE events 
-                    SET tags = %s, 
-                        embedding = %s 
-                    WHERE id = %s
-                    """,
+                    "UPDATE events SET tags = %s, embedding = %s WHERE id = %s",
                     (tags, embedding, id)
                 )
-            conn.commit()
