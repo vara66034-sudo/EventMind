@@ -42,8 +42,8 @@ class EventMindAgent:
             'odoo': {
                 'url': 'http://localhost:8069',
                 'db': 'odoo',
-                'username': 'admin',
-                'password': 'admin'
+                'username': 'odoo',
+                'password': 'odoo'
             },
             'features': {
                 'auto_tagging': True,

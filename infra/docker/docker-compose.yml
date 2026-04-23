@@ -25,7 +25,6 @@ services:
       PASSWORD: odoo
     volumes:
       - teamEventMind2_odoo_data:/var/lib/odoo
-      - ./odoo_addon:/mnt/extra-addons/EventMind
     restart: unless-stopped
 
   backend:
