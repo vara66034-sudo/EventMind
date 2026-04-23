@@ -51,7 +51,7 @@
 
 * **Бэкенд:** FastAPI, Python 3.10+, SQLAlchemy, APScheduler
 * **Фронтенд:** React 18, React Router, Styled-Components, Axios
-* **Базы данных:** SQLite (для пользовательских данных), Odoo ERP (мастер-система событий)
+* **Базы данных:** SQLite (для пользовательских данных), PostgreSQL (события)
 * **Машинное обучение:** GigaChat API, KeyBERT, spaCy, Sentence‑Transformers
 * **Инфраструктура:** Docker, Docker-compose
 
