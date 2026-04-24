@@ -66,7 +66,7 @@ EventMind/
 │   │   ├── api/routes/          # Эндпоинты API (agent.py)
 │   │   ├── integrations/llm/    # Интеграция с GigaChat
 │   │   ├── schedule/            # Логика календаря и фоновых email-рассылок
-│   │   └── services/            # Бизнес-логика (рекомендации, NLP)
+│   │   └── services/            # Логика (рекомендации, NLP)
 │   └── ml/autotagger/           # ML-модуль обработки текстов и тегов
 │
 ├── frontend/                    # Клиентская часть (React)
