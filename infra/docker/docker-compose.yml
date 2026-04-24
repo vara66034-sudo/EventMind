@@ -31,6 +31,8 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://odoo:odoo@db:5432/postgres
     depends_on:
       - db
     container_name: teamEventMind2-backend
