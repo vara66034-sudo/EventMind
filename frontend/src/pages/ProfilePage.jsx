@@ -537,6 +537,32 @@ const TagOption = styled.div`
   `}
 `;
 
+const parseLocalDateTime = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+
+  const cleanValue = String(value)
+    .replace(' ', 'T')
+    .replace(/\.\d+/, '')
+    .replace(/Z$/, '')
+    .replace(/([+-]\d{2}:\d{2})$/, '');
+
+  const [datePart, timePart = '00:00:00'] = cleanValue.split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hours = 0, minutes = 0, seconds = 0] = timePart.split(':').map(Number);
+
+  return new Date(year, month - 1, day, hours, minutes, seconds);
+};
+
+const toLocalDateKey = (value) => {
+  const date = value instanceof Date ? value : parseLocalDateTime(value);
+  if (!date || Number.isNaN(date.getTime())) return null;
+
+  const pad = (num) => String(num).padStart(2, '0');
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+
 const ProfilePage = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState({
@@ -615,7 +641,14 @@ const ProfilePage = () => {
     }
     try {
       const response = await scheduleAPI.getSchedule(userId, 'planned');
-      setSchedule(response && response.success ? response.data : []);
+      
+      const scheduleData = Array.isArray(response)
+        ? response
+        : response?.success
+          ? response.data
+          : [];
+
+      setSchedule(scheduleData || []);
     } catch (error) {
       console.error('Error loading schedule:', error);
       setSchedule([]);
@@ -629,7 +662,14 @@ const ProfilePage = () => {
     }
     try {
       const response = await scheduleAPI.getFavorites(userId);
-      setFavorites(response && response.success ? response.data : []);
+      
+      const favoritesData = Array.isArray(response)
+        ? response
+        : response?.success
+          ? response.data
+          : [];
+
+      setFavorites(favoritesData || []);
     } catch (error) {
       console.error('Error loading favorites:', error);
       setFavorites([]);
@@ -674,9 +714,13 @@ const ProfilePage = () => {
   const scheduleByDate = useMemo(() => {
     return schedule.reduce((acc, event) => {
       if (!event.start) return acc;
-      const dateKey = event.start.split('T')[0];
+
+      const dateKey = toLocalDateKey(event.start);
+      if (!dateKey) return acc;
+
       if (!acc[dateKey]) acc[dateKey] = [];
       acc[dateKey].push(event);
+
       return acc;
     }, {});
   }, [schedule]);
@@ -698,14 +742,28 @@ const ProfilePage = () => {
     if (!selectedDate) return;
     
     try {
-      const [startHours, startMinutes] = newEvent.startTime.split(':');
-      const [endHours, endMinutes] = newEvent.endTime.split(':');
+      const [startHours, startMinutes] = newEvent.startTime.split(':').map(Number);
+      const [endHours, endMinutes] = newEvent.endTime.split(':').map(Number);
       
-      const start = new Date(selectedDate);
-      start.setHours(parseInt(startHours), parseInt(startMinutes));
+      const start = new Date(
+        selectedDate.getFullYear(),
+        selectedDate.getMonth(),
+        selectedDate.getDate(),
+        startHours,
+        startMinutes,
+        0,
+        0
+      );
       
-      const end = new Date(selectedDate);
-      end.setHours(parseInt(endHours), parseInt(endMinutes));
+      const end = new Date(
+        selectedDate.getFullYear(),
+        selectedDate.getMonth(),
+        selectedDate.getDate(),
+        endHours,
+        endMinutes,
+        0,
+        0
+      );
 
       if (userId) {
         await scheduleAPI.addPersonalEvent(
@@ -729,7 +787,10 @@ const ProfilePage = () => {
 
   const formatTime = (isoString) => {
     if (!isoString) return '';
-    const date = new Date(isoString);
+
+    const date = parseLocalDateTime(isoString);
+    if (!date || Number.isNaN(date.getTime())) return '';
+
     return date.toLocaleTimeString('ru-RU', {
       hour: '2-digit',
       minute: '2-digit',
@@ -822,6 +883,7 @@ const ProfilePage = () => {
   const weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
   const today = new Date().getDate();
   const days = generateMonthDays();
+  const selectedDateKey = selectedDate ? toLocalDateKey(selectedDate) : null;
 
   if (loading) {
     return (
@@ -874,7 +936,7 @@ const ProfilePage = () => {
                 <DaysGrid>
                   {days.map((item, index) => {
                     const dateKey = item.day 
-                      ? new Date(currentMonth.getFullYear(), currentMonth.getMonth(), item.day).toISOString().split('T')[0]
+                      ? toLocalDateKey(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), item.day))
                       : null;
                     
                     const dayEvents = item.day ? scheduleByDate[dateKey] || [] : [];
@@ -1041,14 +1103,14 @@ const ProfilePage = () => {
         <ModalOverlay onClick={() => setIsModalOpen(false)}>
           <Modal onClick={(e) => e.stopPropagation()}>
             <ModalTitle>
-              {scheduleByDate[selectedDate.toISOString().split('T')[0]]?.length > 0 
+              {scheduleByDate[selectedDateKey]?.length > 0 
                 ? `События на ${selectedDate.toLocaleDateString('ru-RU')}` 
                 : `Добавить событие на ${selectedDate.toLocaleDateString('ru-RU')}`}
             </ModalTitle>
             
-            {scheduleByDate[selectedDate.toISOString().split('T')[0]]?.length > 0 ? (
+            {scheduleByDate[selectedDateKey]?.length > 0 ? (
               <EventList>
-                {scheduleByDate[selectedDate.toISOString().split('T')[0]].map((event, i) => (
+                {scheduleByDate[selectedDateKey].map((event, i) => (
                   <EventListItem key={i}>
                     <div>
                       <strong>{formatTime(event.start)}</strong>

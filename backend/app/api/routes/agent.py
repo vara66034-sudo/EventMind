@@ -591,14 +591,53 @@ class AgentAPI:
         elif action == 'add_favorite':
             user_id = request_data.get('user_id')
             event_id = request_data.get('event_id')
+
+            if user_id is None or event_id is None:
+                return {'success': False, 'error': 'Invalid user_id or event_id'}
+
+            user_id = int(user_id)
+            event_id = int(event_id)
+
+            event_start_date = None
+
+            events = self._fetch_events(force_refresh=True)
+            event = next((e for e in events if int(e.get('id')) == event_id), None)
+
+            if event and event.get('date_begin'):
+                try:
+                    event_start_date = datetime.fromisoformat(
+                        str(event['date_begin']).replace('Z', '+00:00')
+                    )
+
+                    if event_start_date.tzinfo is not None:
+                        event_start_date = event_start_date.replace(tzinfo=None)
+                except Exception as e:
+                    logger.error(f"Error parsing favorite event date: {e}")
+                    event_start_date = None
+
             with SessionLocal() as db:
-                add_favorite(db, user_id=user_id, event_id=event_id)
+                add_favorite(
+                    db,
+                    user_id=user_id,
+                    event_id=event_id,
+                    event_start_date=event_start_date
+                )
+
             return {'success': True}
         elif action == 'remove_favorite':
             user_id = request_data.get('user_id')
             event_id = request_data.get('event_id')
+
+            if user_id is None or event_id is None:
+                return {'success': False, 'error': 'Invalid user_id or event_id'}
+
             with SessionLocal() as db:
-                remove_favorite(db, user_id=user_id, event_id=event_id)
+                remove_favorite(
+                    db,
+                    user_id=int(user_id),
+                    event_id=int(event_id)
+                )
+
             return {'success': True}
         elif action == 'get_schedule':
             u_id = request_data.get('user_id')

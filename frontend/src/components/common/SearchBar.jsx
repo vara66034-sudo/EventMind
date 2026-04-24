@@ -19,7 +19,7 @@ const Input = styled.input`
   font-size: 14px;
   color: #512A59;
   background: transparent;
-  
+
   &::placeholder {
     color: #D9D9D9;
   }
@@ -29,9 +29,11 @@ const SearchButton = styled.button`
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 18px;
+  font-size: 16px;
   color: #854E6B;
-  
+  font-weight: 600;
+  margin-left: 10px;
+
   &:hover {
     color: #512A59;
   }
@@ -42,21 +44,26 @@ const SearchBar = ({ onSearch }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
     if (onSearch && query.trim()) {
-      onSearch(query);
+      onSearch(query.trim());
     }
   };
 
   return (
     <Container onSubmit={handleSubmit}>
-      <span style={{ marginRight: '10px', fontSize: '18px' }}>✨</span>
+      <span style={{ marginRight: '10px' }}>✨</span>
+
       <Input
         type="text"
-        placeholder="Спроси EventMind AI о событиях..."
+        placeholder="Задать вопрос"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      <SearchButton type="submit">Спросить</SearchButton>
+
+      <SearchButton type="submit">
+        Поиск
+      </SearchButton>
     </Container>
   );
 };

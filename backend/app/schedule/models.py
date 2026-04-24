@@ -52,10 +52,17 @@ class UserInterest(Base):
 
 class UserFavorite(Base):
     __tablename__ = "user_favorites"
+
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, index=True)
+    user_id = Column(Integer, index=True, nullable=False)
     event_id = Column(Integer, nullable=False)
+    event_start_date = Column(DateTime, nullable=True)
+    reminder_sent = Column(Boolean, default=False)
     added_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "event_id", name="uq_user_favorite"),
+    )
 
 class UserInteraction(Base):
     __tablename__ = "user_interactions"

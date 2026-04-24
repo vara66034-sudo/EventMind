@@ -89,23 +89,57 @@ def remove_schedule(db: Session, user_id: int, schedule_id: int) -> bool:
     return True
 
 def add_favorite(db: Session, user_id: int, event_id: int, event_start_date: datetime = None) -> bool:
-    existing = db.query(UserFavorite).filter(UserFavorite.user_id == user_id, UserFavorite.event_id == event_id).first()
-    if existing: return True
-    new_fav = UserFavorite(user_id=user_id, event_id=event_id, event_start_date=event_start_date)
+    user_id = int(user_id)
+    event_id = int(event_id)
+
+    existing = db.query(UserFavorite).filter(
+        UserFavorite.user_id == user_id,
+        UserFavorite.event_id == event_id
+    ).first()
+
+    if existing:
+        if event_start_date and not existing.event_start_date:
+            existing.event_start_date = event_start_date
+            db.commit()
+        return True
+
+    new_fav = UserFavorite(
+        user_id=user_id,
+        event_id=event_id,
+        event_start_date=event_start_date,
+        reminder_sent=False
+    )
+
     db.add(new_fav)
     db.commit()
+
     return True
 
 def remove_favorite(db: Session, user_id: int, event_id: int) -> bool:
-    rec = db.query(UserFavorite).filter(UserFavorite.user_id == user_id, UserFavorite.event_id == event_id).first()
-    if not rec: return False
+    user_id = int(user_id)
+    event_id = int(event_id)
+
+    rec = db.query(UserFavorite).filter(
+        UserFavorite.user_id == user_id,
+        UserFavorite.event_id == event_id
+    ).first()
+
+    if not rec:
+        return False
+
     db.delete(rec)
     db.commit()
+
     return True
 
 def get_favorites(db: Session, user_id: int) -> List[int]:
-    records = db.query(UserFavorite).filter(UserFavorite.user_id == user_id).all()
-    return [rec.event_id for rec in records]
+    user_id = int(user_id)
+
+    records = db.query(UserFavorite).filter(
+        UserFavorite.user_id == user_id
+    ).all()
+
+    return [int(rec.event_id) for rec in records]
 
 
 def export_user_schedule_ics(db: Session, user_id: int) -> str:

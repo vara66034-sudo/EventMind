@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import Calendar from '../components/events/Calendar';
@@ -185,6 +185,26 @@ const EventDetailPage = () => {
   
   const { event, loading, error, refetch } = useEvent(id);
 
+  useEffect(() => {
+    const loadFavoriteState = async () => {
+      if (!userId || !event?.id) return;
+
+      try {
+        const favorites = await scheduleAPI.getFavorites(userId);
+
+        const isAlreadyFavorite = Array.isArray(favorites)
+          ? favorites.some((favId) => Number(favId) === Number(event.id))
+          : false;
+
+        setIsFavorite(isAlreadyFavorite);
+      } catch (err) {
+        console.error('Error loading favorite state:', err);
+      }
+    };
+
+    loadFavoriteState();
+  }, [userId, event?.id]);
+
   const handleAddToSchedule = useCallback(async () => {
     if (!userId || !event?.id || isAdding) return;
     
@@ -201,19 +221,34 @@ const EventDetailPage = () => {
   }, [userId, event?.id, isAdding, refetch]);
 
   const handleToggleFavorite = useCallback(async () => {
-    if (!userId || !event?.id) return;
-    
+    if (!userId || !event?.id) {
+      alert('Войдите в аккаунт, чтобы добавить событие в избранное');
+      return;
+    }
+
     try {
+      let response;
+
       if (!isFavorite) {
-        await scheduleAPI.addToFavorites(userId, event.id);
+        response = await scheduleAPI.addToFavorites(userId, event.id);
+
+        if (!response?.success) {
+          throw new Error(response?.error || 'Ошибка добавления в избранное');
+        }
+
         setIsFavorite(true);
       } else {
-        await scheduleAPI.removeFromFavorites(userId, event.id);
+        response = await scheduleAPI.removeFromFavorites(userId, event.id);
+
+        if (!response?.success) {
+          throw new Error(response?.error || 'Ошибка удаления из избранного');
+        }
+
         setIsFavorite(false);
       }
     } catch (err) {
       console.error('Error toggling favorite:', err);
-      alert('Не удалось обновить избранное');
+      alert(err.message || 'Не удалось обновить избранное');
     }
   }, [userId, event?.id, isFavorite]);
 
