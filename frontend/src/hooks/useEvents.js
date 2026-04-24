@@ -11,14 +11,10 @@ export const useEvents = (filters = {}) => {
     try {
       setLoading(true);
       setError(null);
-      const response = await eventsAPI.getAll({ ...filters, page, limit: 20 });
-      const data = response.data;
-
-      const items = Array.isArray(data) ? data : (data.items || []);
-      const total = data.total || items.length;
+      const items = await eventsAPI.getAll({ ...filters, page, limit: 20 });
       
-      setEvents(items);
-      setPagination({ page, total });
+      setEvents(items || []);
+      setPagination({ page, total: items ? items.length : 0 });
     } catch (err) {
       console.error('Error loading events:', err);
       setError(err.message || 'Не удалось загрузить события');

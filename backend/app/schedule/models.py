@@ -3,9 +3,15 @@ from typing import Optional
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, CheckConstraint, UniqueConstraint
 from sqlalchemy.orm import declarative_base, sessionmaker
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./eventmind.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
+if SQLALCHEMY_DATABASE_URL and SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
+    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -16,10 +22,18 @@ def get_db():
     finally:
         db.close()
 
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    name = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class UserSchedule(Base):
     __tablename__ = "user_schedule"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, index=True)
     event_id = Column(Integer, nullable=True)
     is_personal = Column(Boolean, default=False)
     personal_title = Column(String, nullable=True)
@@ -28,42 +42,31 @@ class UserSchedule(Base):
     personal_description = Column(Text, nullable=True)
     personal_location = Column(String, nullable=True)
     status = Column(String, default="planned")
-    reminder_sent = Column(Boolean, default=False)
     added_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    __table_args__ = (
-        CheckConstraint("(is_personal = TRUE AND personal_title IS NOT NULL AND personal_start IS NOT NULL) OR (is_personal = FALSE AND event_id IS NOT NULL)", name="chk_personal_fields"),
-        UniqueConstraint("user_id", "event_id", name="uniq_user_platform_event"),
-    )
 
 class UserInterest(Base):
-    __tablename__ = "user_interest"
+    __tablename__ = "user_interests"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, index=True)
     interest = Column(String, nullable=False)
 
 class UserFavorite(Base):
-    __tablename__ = "user_favorite"
+    __tablename__ = "user_favorites"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, index=True)
     event_id = Column(Integer, nullable=False)
-    event_start_date = Column(DateTime, nullable=True)
-    reminder_sent = Column(Boolean, default=False)
     added_at = Column(DateTime, default=datetime.utcnow)
 
-    __table_args__ = (
-        UniqueConstraint("user_id", "event_id", name="uniq_user_favorite_event"),
-    )
-
 class UserInteraction(Base):
-    __tablename__ = "user_interaction"
+    __tablename__ = "user_interactions"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, index=True)
     event_id = Column(Integer, nullable=False)
-    interaction_type = Column(String, nullable=False)  # 'view', 'register', 'favorite'
-    tags = Column(String, nullable=True)  # Comma separated
+    interaction_type = Column(String, nullable=False)
+    tags = Column(String, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+Base.metadata.create_all(bind=engine)
 
 class SchedulePlatformCreate(BaseModel):
     event_id: int

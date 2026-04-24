@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -15,7 +15,7 @@ app = FastAPI(title="EventMind API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Разрешаем обращаться к нам с любых хостов (плохой вариант, но в нашем случае самый удобный.)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,34 +35,30 @@ class SPAStaticFiles(StaticFiles):
 
 class AuthRequest(BaseModel):
     action: str
-    email: Optional[str] = None
-    password: Optional[str] = None
-    name: Optional[str] = None
-    token: Optional[str] = None
-    user_id: Optional[int] = None
-    interests: Optional[List[str]] = None
+    model_config = {"extra": "allow"}
+
+from fastapi import Response
 
 @app.post("/api/auth")
-async def auth_handler(request: AuthRequest):
+async def auth_handler(request: Dict[str, Any]):
     api = get_api()
-    return api.handle_request(request.dict())
+    result = api.handle_request(request)
+    
+    # Если результат содержит контент для файла (например, ICS)
+    if isinstance(result, dict) and result.get('success') and isinstance(result.get('data'), dict) and 'content' in result['data']:
+        data = result['data']
+        return Response(
+            content=data['content'],
+            media_type=data.get('content_type', 'text/calendar'),
+            headers={
+                'Content-Disposition': f'attachment; filename="{data.get("filename", "calendar.ics")}"'
+            }
+        )
+    
+    return result
 
 def get_user_email(user_id: int) -> Optional[str]:
-    try:
-        api = get_api()
-        admin_conn = api._get_odoo_connection(api.odoo_admin, api.odoo_admin_pw)
-        if not admin_conn:
-            return None
-        users = admin_conn['models'].execute_kw(
-            api.odoo_db, admin_conn['uid'], api.odoo_admin_pw,
-            'res.users', 'read',
-            [[user_id]],
-            {'fields': ['login']}
-        )
-        if users:
-            return users[0].get('login')
-    except Exception as e:
-        import logging; logging.getLogger(__name__).error(f"Cannot fetch email for user {user_id}: {e}")
+    # Placeholder for email fetching
     return None
 
 @app.on_event("startup")
@@ -73,11 +69,10 @@ async def startup_event():
     import logging
     logging.info("Scheduler started successfully")
 
-@app.get("/api/events")
-async def get_events(request: AuthRequest):
-    api = get_api()
-    return api.handle_request(request.dict())
-
 frontend_build_dir = Path(__file__).resolve().parents[2] / "frontend" / "build"
 
-app.mount("/", SPAStaticFiles(directory=str(frontend_build_dir), html=True), name="spa")
+if frontend_build_dir.exists():
+    app.mount("/", SPAStaticFiles(directory=str(frontend_build_dir), html=True), name="spa")
+else:
+    import logging
+    logging.warning(f"Frontend build directory not found at {frontend_build_dir}. API will run without serving static files.")

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import TypeFilters from '../components/events/TypeFilters';
 
 const PageContainer = styled.div`
   min-height: 100vh;
@@ -93,7 +92,6 @@ const RegisterPage = () => {
         password,
       }));
       
-      // Переходим на выбор интересов
       navigate('/select-interests');
       
     } catch (error) {
@@ -106,7 +104,6 @@ const RegisterPage = () => {
 
   return (
     <PageContainer>
-      <TypeFilters activeType="" onTypeChange={() => {}} />
       <ContentWrapper>
         <FormContainer>
           <Title>Регистрация</Title>

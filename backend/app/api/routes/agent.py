@@ -3,15 +3,21 @@
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-import xmlrpc.client
 import hashlib
 import secrets
+import os
+import psycopg2
+import psycopg2.extras
+from dotenv import load_dotenv
+load_dotenv()
+
 from ...services.agent.orchestrator import get_agent
 from ...services.recommendations.service import get_recommender
 from ...services.calendar.user_calendar import get_user_calendar, TimeSlot
-from ...schedule.models import SessionLocal, UserSchedule, SchedulePersonalCreate
+from ...schedule.models import SessionLocal, UserSchedule, UserInterest, User
 from ...schedule.services import add_favorite, remove_favorite, get_favorites, add_personal_event
 from ...integrations.llm.gigachat_service import get_llm_service
+from ...integrations.calendar.ics_generator import get_ics_generator
 
 logger = logging.getLogger('EventMind.API')
 
@@ -21,13 +27,8 @@ class AgentAPI:
     def __init__(self):
         self.agent = get_agent()
         self.recommender = get_recommender()
-        odoo_config = self.agent.config.get('odoo', {})
-        self.odoo_url = odoo_config.get('url', 'http://localhost:8069')
-        self.odoo_db = odoo_config.get('db', 'odoo')
-        self.odoo_admin = odoo_config.get('username', 'odoo')
-        self.odoo_admin_pw = odoo_config.get('password', 'odoo')
         self._events_cache = {'timestamp': None, 'data': []}
-        logger.info("AgentAPI initialized")
+        logger.info("AgentAPI initialized (PostgreSQL mode)")
 
     def _sync_calendar(self, user_id: int):
         from datetime import timedelta
@@ -46,43 +47,58 @@ class AgentAPI:
 
     # -------------------- Вспомогательные методы --------------------
 
-    def _fetch_events_from_odoo(self, date_from: datetime = None, date_to: datetime = None, force_refresh: bool = False) -> List[Dict]:
-        """Загружает события из Odoo через XML-RPC (с кэшированием)"""
+    def _fetch_events(self, date_from: datetime = None, date_to: datetime = None, force_refresh: bool = False) -> List[Dict]:
+        """Загружает события из PostgreSQL (с кэшированием)"""
         now = datetime.now()
         if not force_refresh and not date_from and not date_to:
             if self._events_cache['timestamp'] and (now - self._events_cache['timestamp']).total_seconds() < 300:
                 return self._events_cache['data']
         
+        database_url = os.getenv("DATABASE_URL")
+        logger.info(f"Fetching events from DB. URL present: {bool(database_url)}")
+        if not database_url:
+            logger.error("DATABASE_URL not found in environment")
+            return []
+
         try:
-            common = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/common")
-            uid = common.authenticate(self.odoo_db, self.odoo_admin, self.odoo_admin_pw, {})
-            if not uid:
-                logger.error("Cannot authenticate to Odoo")
-                return []
-
-            models = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/object")
-            domain = []
+            conn = psycopg2.connect(database_url)
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            
+            query = "SELECT * FROM events WHERE 1=1"
+            params = []
+            
             if date_from:
-                domain.append(('date_begin', '>=', date_from.isoformat()))
+                query += " AND event_date >= %s"
+                params.append(date_from)
+            elif not date_to and not force_refresh:
+                # По умолчанию: только будущие события
+                query += " AND event_date >= %s"
+                params.append(now)
+            
             if date_to:
-                domain.append(('date_begin', '<=', date_to.isoformat()))
-            else:
-                domain.append(('date_begin', '>=', datetime.now().isoformat()))
-
-            events = models.execute_kw(
-                self.odoo_db, uid, self.odoo_admin_pw,
-                'event.event', 'search_read',
-                [domain],
-                {'fields': ['id', 'name', 'date_begin', 'date_end', 'location', 'description', 'tag_ids']}
-            )
-            # Преобразуем tag_ids в список названий тегов
-            for e in events:
-                if e.get('tag_ids'):
-                    tags = models.execute_kw(self.odoo_db, uid, self.odoo_admin_pw,
-                                             'event.tag', 'read', [e['tag_ids']], {'fields': ['name']})
-                    e['tags'] = [t['name'] for t in tags]
-                else:
-                    e['tags'] = []
+                query += " AND event_date <= %s"
+                params.append(date_to)
+                
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            
+            events = []
+            for row in rows:
+                events.append({
+                    'id': row['id'],
+                    'name': row['title'],
+                    'date_begin': row['event_date'].isoformat() if row['event_date'] else None,
+                    'date_end': None,
+                    'location': row['location'],
+                    'description': row['description'],
+                    'tags': row['tags'] or [],
+                    'image': row['image_url'],
+                    'source': row['source'],
+                    'source_url': row['source_url']
+                })
+                
+            cur.close()
+            conn.close()
             
             if not date_from and not date_to:
                 self._events_cache['timestamp'] = now
@@ -90,7 +106,7 @@ class AgentAPI:
                 
             return events
         except Exception as e:
-            logger.error(f"Failed to fetch events from Odoo: {e}")
+            logger.error(f"Failed to fetch events from DB: {e}")
             return []
 
     # -------------------- Основные методы --------------------
@@ -116,7 +132,7 @@ class AgentAPI:
                             limit: int = 10,
                             include_explanation: bool = False) -> Dict:
         try:
-            events = self._fetch_events_from_odoo()
+            events = self._fetch_events()
             recommendations = self.recommender.get_recommendations(
                 user_id=user_id,
                 events=events,
@@ -161,6 +177,16 @@ class AgentAPI:
             self.recommender.update_user_profile(user_id, interests)
             calendar = get_user_calendar(user_id)
             calendar.set_interests(interests)
+            # Сохраняем в БД
+            with SessionLocal() as db:
+                # Удаляем старые интересы
+                db.query(UserInterest).filter(UserInterest.user_id == user_id).delete()
+                # Добавляем новые
+                if interests:
+                    for interest in interests:
+                        db.add(UserInterest(user_id=user_id, interest=interest))
+                db.commit()
+
             return {
                 'success': True,
                 'data': {
@@ -176,7 +202,7 @@ class AgentAPI:
 
     def get_similar_events(self, event_id: int, limit: int = 5) -> Dict:
         try:
-            events = self._fetch_events_from_odoo()
+            events = self._fetch_events()
             similar = self.recommender.get_similar_events(
                 event_id=event_id,
                 events=events,
@@ -185,8 +211,7 @@ class AgentAPI:
             return {
                 'success': True,
                 'data': {
-                    'source_event_id': event_id,
-                    'similar_events': similar,
+                    'items': similar,
                     'count': len(similar)
                 }
             }
@@ -194,167 +219,360 @@ class AgentAPI:
             logger.error(f"Error getting similar events: {e}")
             return {'success': False, 'error': str(e)}
 
-    # -------------------- Авторизация через Odoo --------------------
-
-    def _get_odoo_connection(self, username: str, password: str):
+    def get_schedule(self, user_id: int, status: str = 'planned') -> Dict:
         try:
-            common = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/common")
-            uid = common.authenticate(self.odoo_db, username, password, {})
-            if uid:
-                models = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/object")
-                return {'uid': uid, 'models': models}
-            return None
+            if user_id is not None:
+                user_id = int(user_id)
+            
+            with SessionLocal() as db:
+                schedule_items = db.query(UserSchedule).filter(
+                    UserSchedule.user_id == user_id,
+                    UserSchedule.status == status
+                ).all()
+            
+            # Нам нужно обогатить данные мероприятий, если это не персональные события
+            events = self._fetch_events()
+            events_map = {e['id']: e for e in events}
+            
+            results = []
+            for item in schedule_items:
+                if not item.is_personal and item.event_id in events_map:
+                    event = events_map[item.event_id]
+                    results.append({
+                        'id': item.id,
+                        'event_id': item.event_id,
+                        'type': 'platform',
+                        'name': event['name'],
+                        'start': event['date_begin'],
+                        'location': event['location'],
+                        'description': event['description'],
+                        'status': item.status
+                    })
+                elif item.is_personal:
+                    results.append({
+                        'id': item.id,
+                        'type': 'personal',
+                        'name': item.personal_title,
+                        'start': item.personal_start.isoformat() if item.personal_start else None,
+                        'end': item.personal_end.isoformat() if item.personal_end else None,
+                        'location': item.personal_location,
+                        'description': item.personal_description,
+                        'status': item.status
+                    })
+            
+            return {'success': True, 'data': results}
         except Exception as e:
-            logger.error(f"Odoo connection error: {e}")
-            return None
+            logger.error(f"Error fetching schedule for user {user_id}: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def add_platform_event(self, user_id: int, event_id: int) -> Dict:
+        try:
+            if user_id is not None:
+                user_id = int(user_id)
+            if event_id is not None:
+                event_id = int(event_id)
+                
+            with SessionLocal() as db:
+                # Проверяем, нет ли уже такого события
+                existing = db.query(UserSchedule).filter(
+                    UserSchedule.user_id == user_id,
+                    UserSchedule.event_id == event_id
+                ).first()
+                
+                if existing:
+                    return {'success': True, 'message': 'Event already in schedule'}
+                
+                new_item = UserSchedule(
+                    user_id=user_id,
+                    event_id=event_id,
+                    is_personal=False,
+                    status='planned'
+                )
+                db.add(new_item)
+                db.commit()
+            return {'success': True}
+        except Exception as e:
+            logger.error(f"Error adding platform event: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def add_personal_event(self, user_id: int, title: str, start: str, end: str = None, description: str = '', location: str = '') -> Dict:
+        try:
+            if user_id is not None:
+                user_id = int(user_id)
+            
+            # Парсим даты из ISO формата
+            start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
+            end_dt = datetime.fromisoformat(end.replace('Z', '+00:00')) if end else None
+            
+            with SessionLocal() as db:
+                new_item = UserSchedule(
+                    user_id=user_id,
+                    is_personal=True,
+                    personal_title=title,
+                    personal_start=start_dt,
+                    personal_end=end_dt,
+                    personal_description=description,
+                    personal_location=location,
+                    status='planned'
+                )
+                db.add(new_item)
+                db.commit()
+            return {'success': True}
+        except Exception as e:
+            logger.error(f"Error adding personal event: {e}")
+            return {'success': False, 'error': str(e)}
 
     def register_user(self, email: str, password: str, name: str = None, interests: List[str] = None) -> Dict:
         try:
-            admin_conn = self._get_odoo_connection(self.odoo_admin, self.odoo_admin_pw)
-            if not admin_conn:
-                return {'success': False, 'error': 'Cannot connect to Odoo server'}
-
-            existing = admin_conn['models'].execute_kw(
-                self.odoo_db, admin_conn['uid'], self.odoo_admin_pw,
-                'res.users', 'search',
-                [[['login', '=', email]]]
+            logger.info(f"--- Direct SQL Registration Start for {email} ---")
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+            user_name = name or email.split('@')[0]
+            
+            # Используем прямое соединение psycopg2 для гарантии записи в Неон
+            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+            cur = conn.cursor()
+            
+            # 1. Проверяем существование
+            cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+            if cur.fetchone():
+                conn.close()
+                return {'success': False, 'error': 'Пользователь с таким email уже существует'}
+            
+            # 2. Создаем пользователя
+            cur.execute(
+                "INSERT INTO users (email, password_hash, name) VALUES (%s, %s, %s) RETURNING id",
+                (email, password_hash, user_name)
             )
-            if existing:
-                return {'success': False, 'error': 'User with this email already exists'}
-
-            partner_id = admin_conn['models'].execute_kw(
-                self.odoo_db, admin_conn['uid'], self.odoo_admin_pw,
-                'res.partner', 'create', [{
-                    'name': name or email.split('@')[0],
-                    'email': email,
-                }]
-            )
-
-            user_id = admin_conn['models'].execute_kw(
-                self.odoo_db, admin_conn['uid'], self.odoo_admin_pw,
-                'res.users', 'create', [{
-                    'name': name or email.split('@')[0],
-                    'login': email,
-                    'password': password,
-                    'email': email,
-                    'partner_id': partner_id,
-                    'groups_id': [(6, 0, [1])]
-                }]
-            )
-
-            logger.info(f"New user registered: {email} (ID: {user_id})")
-
+            user_id = cur.fetchone()[0]
+            logger.info(f"User created via SQL. ID: {user_id}")
+            
+            # 3. Сохраняем интересы
             if interests:
-                self.update_user_profile(user_id=user_id, name=name, interests=interests)
-
+                for interest in interests:
+                    cur.execute(
+                        "INSERT INTO user_interests (user_id, interest) VALUES (%s, %s)",
+                        (user_id, interest)
+                    )
+                logger.info(f"Interests saved via SQL for user {user_id}")
+            
+            conn.commit()
+            conn.close()
+            
+            token = secrets.token_hex(16)
             return {
                 'success': True,
                 'data': {
                     'user_id': user_id,
-                    'email': email,
-                    'name': name or email.split('@')[0]
-                },
-                'message': 'Registration successful'
-            }
-        except Exception as e:
-            logger.error(f"Registration error: {e}")
-            return {'success': False, 'error': str(e)}
-
-    def login_user(self, email: str, password: str) -> Dict:
-        try:
-            common = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/common")
-            uid = common.authenticate(self.odoo_db, email, password, {})
-            if not uid:
-                return {'success': False, 'error': 'Invalid email or password'}
-
-            models = xmlrpc.client.ServerProxy(f"{self.odoo_url}/xmlrpc/2/object")
-            user_data = models.execute_kw(
-                self.odoo_db, uid, password,
-                'res.users', 'read',
-                [uid],
-                {'fields': ['id', 'name', 'login', 'email', 'partner_id']}
-            )
-
-            token = hashlib.sha256(f"{email}:{password}:{secrets.token_hex(16)}".encode()).hexdigest()
-            logger.info(f"User logged in: {email} (ID: {uid})")
-            return {
-                'success': True,
-                'data': {
-                    'user_id': uid,
-                    'email': user_data[0]['login'],
-                    'name': user_data[0]['name'],
                     'token': token,
-                    'partner_id': user_data[0]['partner_id'][0] if user_data[0]['partner_id'] else None
+                    'email': email,
+                    'name': user_name
                 }
             }
         except Exception as e:
-            logger.error(f"Login error: {e}")
+            logger.error(f"CRITICAL SQL ERROR in register_user: {e}")
+            return {'success': False, 'error': f"Ошибка базы данных: {str(e)}"}
+
+    def login_user(self, email: str, password: str) -> Dict:
+        try:
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            
+            cur.execute(
+                "SELECT id, email, name FROM users WHERE email = %s AND password_hash = %s",
+                (email, password_hash)
+            )
+            user = cur.fetchone()
+            conn.close()
+            
+            if not user:
+                return {'success': False, 'error': 'Неверный email или пароль'}
+            
+            token = secrets.token_hex(16)
+            return {
+                'success': True,
+                'data': {
+                    'user_id': user['id'],
+                    'token': token,
+                    'email': user['email'],
+                    'name': user['name']
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error logging in via SQL: {e}")
             return {'success': False, 'error': str(e)}
+
+    def get_profile(self, user_id: int) -> Dict:
+        try:
+            # Преобразуем к int
+            if user_id is not None:
+                user_id = int(user_id)
+            
+            with SessionLocal() as db:
+                user = db.query(User).filter(User.id == user_id).first()
+                if not user:
+                    return {'success': False, 'error': 'Пользователь не найден'}
+                    
+                interests = db.query(UserInterest).filter(UserInterest.user_id == user_id).all()
+                interest_list = [i.interest for i in interests]
+                
+                return {
+                    'success': True,
+                    'data': {
+                        'id': user.id,
+                        'name': user.name,
+                        'email': user.email,
+                        'interests': interest_list
+                    }
+                }
+        except Exception as e:
+            logger.error(f"Error fetching profile for {user_id}: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def get_event(self, event_id: int) -> Dict:
+        try:
+            # Преобразуем event_id к int, если он пришел строкой
+            if event_id is not None:
+                event_id = int(event_id)
+            
+            logger.info(f"API Request: get_event for ID {event_id}")
+            events = self._fetch_events(force_refresh=True)
+            event = next((e for e in events if str(e['id']) == str(event_id)), None)
+            
+            if event:
+                logger.info(f"Event found: {event.get('name')}")
+                return {'success': True, 'data': event}
+            
+            logger.warning(f"Event {event_id} not found among {len(events)} events")
+            return {'success': False, 'error': f'Событие с ID {event_id} не найдено'}
+        except Exception as e:
+            logger.error(f"Error fetching event {event_id}: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def get_event_ics(self, event_id: int) -> Dict:
+        try:
+            event_res = self.get_event(event_id)
+            if not event_res['success']:
+                return event_res
+            
+            event = event_res['data']
+            ics_gen = get_ics_generator()
+            ics_content = ics_gen.generate_ics(event)
+            
+            return {
+                'success': True, 
+                'data': {
+                    'content': ics_content,
+                    'filename': f"event_{event_id}.ics",
+                    'content_type': 'text/calendar'
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error generating ICS for event {event_id}: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def export_ics(self, user_id: int) -> Dict:
+        try:
+            with SessionLocal() as db:
+                fav_ids = get_favorites(db, user_id=user_id)
+            events = self._fetch_events()
+            fav_events = [e for e in events if e.get('id') in fav_ids]
+            
+            ics_gen = get_ics_generator()
+            ics_content = ics_gen.generate_multi_ics(fav_events)
+            
+            return {
+                'success': True,
+                'data': {
+                    'content': ics_content,
+                    'filename': 'my_schedule.ics',
+                    'content_type': 'text/calendar'
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error exporting ICS for user {user_id}: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def get_events(self, page=1, limit=20, city=None, event_type=None, q=None):
+        try:
+            events = self._fetch_events(force_refresh=True)
+
+            return {
+                "success": True,
+                "data": {
+                    "items": events,
+                    "total": len(events),
+                    "page": int(page or 1),
+                    "limit": int(limit or 20),
+                },
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Ошибка загрузки событий: {str(e)}",
+            }
+
+    def login_user(self, email: str, password: str) -> Dict:
+        # Временная имитация входа (так как Odoo удален)
+        token = hashlib.sha256(f"{email}:{password}:{secrets.token_hex(16)}".encode()).hexdigest()
+        return {
+            'success': True,
+            'data': {
+                'user_id': 1,
+                'email': email,
+                'name': email.split('@')[0],
+                'token': token
+            }
+        }
+
+    def register_user(self, email: str, password: str, name: str = None, interests: List[str] = None) -> Dict:
+        # Временная имитация регистрации
+        user_id = 1
+        if interests:
+            with SessionLocal() as db:
+                # Очищаем старые интересы для этого пользователя перед добавлением (имитация)
+                db.query(UserInterest).filter(UserInterest.user_id == user_id).delete()
+                for interest in interests:
+                    db.add(UserInterest(user_id=user_id, interest=interest))
+                db.commit()
+        
+        token = hashlib.sha256(f"{email}:{password}:{secrets.token_hex(16)}".encode()).hexdigest()
+        return {
+            'success': True,
+            'data': {
+                'user_id': user_id, 
+                'email': email, 
+                'name': name or email.split('@')[0],
+                'token': token
+            },
+            'message': 'Registration successful'
+        }
 
     def logout_user(self, token: str) -> Dict:
         logger.info(f"User logged out (token: {token[:10]}...)")
         return {'success': True, 'message': 'Logged out successfully'}
 
-    def get_current_user(self, token: str) -> Dict:
-        return {'success': False, 'error': 'Not implemented'}
-
-    def update_user_profile(self, user_id: int, name: str = None, interests: List[str] = None) -> Dict:
-        try:
-            if interests is not None:
-                self.recommender.update_user_profile(user_id, interests)
-                calendar = get_user_calendar(user_id)
-                calendar.set_interests(interests)
-            return {'success': True, 'message': 'Profile updated'}
-        except Exception as e:
-            logger.error(f"Update profile error: {e}")
-            return {'success': False, 'error': str(e)}
-
-    # -------------------- Расписание и рекомендации с учётом времени --------------------
-
-    def add_busy_slot(self, user_id: int, start: str, end: str, title: str) -> Dict:
-        try:
-            calendar = get_user_calendar(user_id)
-            slot = TimeSlot(
-                start=datetime.fromisoformat(start),
-                end=datetime.fromisoformat(end),
-                title=title
-            )
-            calendar.add_busy_slot(slot)
-            logger.info(f"Added busy slot for user {user_id}: {start} - {end} ({title})")
-            return {'success': True, 'message': 'Busy slot added'}
-        except Exception as e:
-            logger.error(f"Error adding busy slot: {e}")
-            return {'success': False, 'error': str(e)}
-
-    def get_schedule(self, user_id: int, start_date: str) -> Dict:
-        try:
-            calendar = self._sync_calendar(user_id)
-            start = datetime.fromisoformat(start_date)
-            schedule = calendar.get_week_schedule(start)
-            return {'success': True, 'data': schedule}
-        except Exception as e:
-            logger.error(f"Error getting schedule: {e}")
-            return {'success': False, 'error': str(e)}
-
     def ask_ai(self, question: str) -> Dict:
         try:
+            # Получаем актуальные события для контекста
+            events = self._fetch_events(force_refresh=True)
             llm_service = get_llm_service()
-            # Пытаемся получить список событий для контекста, если возможно
-            events = self._fetch_events_from_odoo()
-            answer = llm_service.ask_ai_question(question, context_events=events)
+            
+            # Передаем вопрос и события в LLM сервис
+            answer = llm_service.ask_ai_question(question, events)
+            
             return {
                 'success': True,
                 'data': {
-                    'answer': answer,
-                    'question': question
-                },
-                'timestamp': datetime.now().isoformat()
+                    'answer': answer
+                }
             }
         except Exception as e:
             logger.error(f"Error in ask_ai: {e}")
-            return {'success': False, 'error': str(e)}
-
-    # -------------------- Единый обработчик запросов --------------------
+            return {
+                'success': False,
+                'error': f"Ошибка AI ассистента: {str(e)}"
+            }
 
     def handle_request(self, request_data: Dict) -> Dict:
         action = request_data.get('action')
@@ -363,7 +581,6 @@ class AgentAPI:
 
         logger.info(f"API request: {action}")
 
-        # Существующие действия
         if action == 'status':
             return self.get_status()
         elif action == 'run_cycle':
@@ -374,24 +591,21 @@ class AgentAPI:
                 limit=request_data.get('limit', 10),
                 include_explanation=request_data.get('include_explanation', False)
             )
-        elif action == 'interaction':
-            return self.record_interaction(
-                user_id=request_data.get('user_id'),
-                event_id=request_data.get('event_id'),
-                interaction_type=request_data.get('type'),
-                tags=request_data.get('tags')
+        elif action == 'get_events':
+            return self.get_events(
+                page=request_data.get("page", 1),
+                limit=request_data.get("limit", 20)
             )
-        elif action == 'update_interests':
-            return self.update_user_interests(
-                user_id=request_data.get('user_id'),
-                interests=request_data.get('interests', [])
-            )
-        elif action == 'similar':
-            return self.get_similar_events(
-                event_id=request_data.get('event_id'),
-                limit=request_data.get('limit', 5)
-            )
-        # Авторизация
+        elif action == 'get_event':
+            return self.get_event(request_data.get('event_id'))
+        elif action == 'get_event_ics':
+            return self.get_event_ics(request_data.get('event_id'))
+        elif action == 'export_ics':
+            return self.export_ics(request_data.get('user_id'))
+        elif action == 'get_profile':
+            return self.get_profile(request_data.get('user_id'))
+        elif action == 'login':
+            return self.login_user(request_data.get('email'), request_data.get('password'))
         elif action == 'register':
             return self.register_user(
                 email=request_data.get('email'),
@@ -399,112 +613,79 @@ class AgentAPI:
                 name=request_data.get('name'),
                 interests=request_data.get('interests')
             )
-        elif action == 'login':
-            return self.login_user(
-                email=request_data.get('email'),
-                password=request_data.get('password')
-            )
-        elif action == 'logout':
-            return self.logout_user(token=request_data.get('token'))
-        elif action == 'current_user':
-            return self.get_current_user(token=request_data.get('token'))
-        elif action == 'update_profile':
-            return self.update_user_profile(
-                user_id=request_data.get('user_id'),
-                name=request_data.get('name'),
-                interests=request_data.get('interests')
-            )
-        # Расписание
-        elif action == 'add_busy_slot':
-            return self.add_busy_slot(
-                user_id=request_data.get('user_id'),
-                start=request_data.get('start'),
-                end=request_data.get('end'),
-                title=request_data.get('title', 'Занято')
-            )
-        elif action == 'get_schedule':
-            return self.get_schedule(
-                user_id=request_data.get('user_id'),
-                start_date=request_data.get('start_date', datetime.now().isoformat())
-            )
-        elif action == 'recommendations_with_schedule':
-            return self.get_recommendations_with_schedule(
-                user_id=request_data.get('user_id'),
-                limit=request_data.get('limit', 10)
-            )
-        elif action == 'ask_ai':
-            return self.ask_ai(
-                question=request_data.get('question')
-            )
-        # Избранное
-        elif action == 'add_favorite':
-            event_id = request_data.get('event_id')
-            user_id = request_data.get('user_id')
-            events = self._fetch_events_from_odoo()
-            event = next((e for e in events if e.get('id') == event_id), None)
-            event_date = None
-            tags = []
-            if event:
-                if event.get('date_begin'):
-                    event_date = datetime.fromisoformat(event['date_begin'].replace('Z', '+00:00'))
-                tags = event.get('tags', [])
-            
-            with SessionLocal() as db:
-                add_favorite(db, user_id=user_id, event_id=event_id, event_start_date=event_date)
-            
-            self.recommender.record_interaction(user_id=user_id, event_id=event_id, interaction_type='favorite', tags=tags)
-            
-            return {'success': True, 'message': 'Added to favorites'}
-            
-        elif action == 'add_personal_event':
-            data = SchedulePersonalCreate(
-                title=request_data.get('title', 'Занято'),
-                start=datetime.fromisoformat(request_data['start']),
-                end=datetime.fromisoformat(request_data['end']) if request_data.get('end') else None,
-                description=request_data.get('description', ''),
-                location=request_data.get('location', '')
-            )
-            user_email = request_data.get('email', '')
-            with SessionLocal() as db:
-                result = add_personal_event(db, request_data['user_id'], data, user_email)
-            self._sync_calendar(request_data['user_id'])
-            return {'success': True, 'data': result.model_dump()}
-            
-        elif action == 'remove_favorite':
-            user_id = request_data.get('user_id')
-            event_id = request_data.get('event_id')
-            with SessionLocal() as db:
-                success = remove_favorite(db, user_id=user_id, event_id=event_id)
-            return {'success': success}
-            
         elif action == 'get_favorites':
             user_id = request_data.get('user_id')
             with SessionLocal() as db:
                 fav_ids = get_favorites(db, user_id=user_id)
-            
-            if fav_ids:
-                events = self._fetch_events_from_odoo()
-                fav_events = [e for e in events if e.get('id') in fav_ids]
-            else:
-                fav_events = []
-            
+            events = self._fetch_events()
+            fav_events = [e for e in events if e.get('id') in fav_ids]
             return {'success': True, 'data': fav_events}
-        else:
-            return {'success': False, 'error': f'Unknown action: {action}'}
+        elif action == 'add_favorite':
+            user_id = request_data.get('user_id')
+            event_id = request_data.get('event_id')
+            with SessionLocal() as db:
+                add_favorite(db, user_id=user_id, event_id=event_id)
+            return {'success': True}
+        elif action == 'remove_favorite':
+            user_id = request_data.get('user_id')
+            event_id = request_data.get('event_id')
+            with SessionLocal() as db:
+                remove_favorite(db, user_id=user_id, event_id=event_id)
+            return {'success': True}
+        elif action == 'get_schedule':
+            u_id = request_data.get('user_id')
+            # Защита от кривых данных с фронтенда
+            if u_id == 'planned' or u_id is None:
+                return {'success': False, 'error': 'Invalid user_id'}
+            return self.get_schedule(
+                user_id=u_id,
+                status=request_data.get('status', 'planned')
+            )
+        elif action == 'add_platform_event':
+            return self.add_platform_event(
+                user_id=request_data.get('user_id'),
+                event_id=request_data.get('event_id')
+            )
+        elif action == 'add_personal_event':
+            return self.add_personal_event(
+                user_id=request_data.get('user_id'),
+                title=request_data.get('title'),
+                start=request_data.get('start'),
+                end=request_data.get('end'),
+                description=request_data.get('description'),
+                location=request_data.get('location')
+            )
+        elif action == 'ask_ai':
+            return self.ask_ai(request_data.get('question'))
+        elif action == 'recommendations_with_schedule':
+            u_id = request_data.get('user_id')
+            if u_id == 'planned' or u_id is None:
+                return {'success': False, 'error': 'Invalid user_id'}
+            return self.get_recommendations_with_schedule(
+                user_id=u_id,
+                limit=request_data.get('limit', 10)
+            )
+        elif action == 'update_interests':
+            return self.update_user_interests(
+                user_id=request_data.get('user_id'),
+                interests=request_data.get('interests')
+            )
+        
+        return {'success': False, 'error': f'Unknown action: {action}'}
 
         # -------------------- Добавление LLM --------------------
 
     def get_recommendations_with_schedule(self, user_id: int, limit: int = 10, use_llm: bool = True) -> Dict:
         try:
-            events = self._fetch_events_from_odoo()
+            events = self._fetch_events()
             if not events:
                 return {'success': True, 'data': [], 'message': 'No events available'}
 
-            # Ваш существующий код скоринга и проверки доступности...
-            recs = self.recommender.get_recommendations(
+            # Используем метод рекомендаций с учетом календаря
+            recs = self.recommender.get_recommendations_with_schedule(
                 user_id=user_id,
                 events=events,
-                limit=100,
+                limit=limit,
                 include_explanation=True
             )
 

@@ -146,12 +146,22 @@ const SelectInterestsPage = () => {
       if (pendingRegistration) {
         const userData = JSON.parse(pendingRegistration);
 
-        await authAPI.register({
+        const response = await authAPI.register({
           name: userData.name,
           email: userData.email,
           password: userData.password,
           interests: selectedTags,
         });
+        
+        console.log('Registration response:', response);
+        if (response && response.success && response.data) {
+          console.log('Setting auth with userId:', response.data.user_id);
+          localStorage.setItem('auth', JSON.stringify({
+            userId: response.data.user_id,
+            token: response.data.token,
+            user: response.data,
+          }));
+        }
         
         localStorage.removeItem('pendingRegistration');
         
@@ -177,12 +187,21 @@ const SelectInterestsPage = () => {
     if (pendingRegistration) {
       try {
         const userData = JSON.parse(pendingRegistration);
-        await authAPI.register({
+        const response = await authAPI.register({
           name: userData.name,
           email: userData.email,
           password: userData.password,
           interests: [],
         });
+        
+        if (response && response.success && response.data) {
+          localStorage.setItem('auth', JSON.stringify({
+            userId: response.data.user_id,
+            token: response.data.token,
+            user: response.data,
+          }));
+        }
+        
         localStorage.removeItem('pendingRegistration');
       } catch (error) {
         console.error('Error registering without interests:', error);

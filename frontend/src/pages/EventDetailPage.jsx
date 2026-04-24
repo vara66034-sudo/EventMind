@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import TypeFilters from '../components/events/TypeFilters';
 import Calendar from '../components/events/Calendar';
 import Recommendations from '../components/events/Recommendations';
 import { useEvent } from '../hooks/useEvent';
@@ -177,7 +176,6 @@ const ErrorMessage = styled.div`
 const EventDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [activeType, setActiveType] = useState('Все мероприятия');
   const [isAdding, setIsAdding] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const userId = useMemo(() => {
@@ -186,10 +184,6 @@ const EventDetailPage = () => {
   }, []);
   
   const { event, loading, error, refetch } = useEvent(id);
-
-  const handleTypeChange = (type) => {
-    setActiveType(type);
-  };
 
   const handleAddToSchedule = useCallback(async () => {
     if (!userId || !event?.id || isAdding) return;
@@ -239,7 +233,6 @@ const EventDetailPage = () => {
   if (loading) {
     return (
       <PageContainer>
-        <TypeFilters activeType={activeType} onTypeChange={handleTypeChange} />
         <Loader>Загрузка события...</Loader>
       </PageContainer>
     );
@@ -248,7 +241,6 @@ const EventDetailPage = () => {
   if (error || !event) {
     return (
       <PageContainer>
-        <TypeFilters activeType={activeType} onTypeChange={handleTypeChange} />
         <ErrorMessage>
           Не удалось загрузить событие. <br />
           <button 
@@ -264,8 +256,6 @@ const EventDetailPage = () => {
 
   return (
     <PageContainer>
-      <TypeFilters activeType={activeType} onTypeChange={handleTypeChange} />
-
       <EventHero>
         <ContentWrapper>
           <EventCard>

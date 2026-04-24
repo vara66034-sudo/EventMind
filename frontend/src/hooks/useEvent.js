@@ -12,7 +12,7 @@ export const useEvent = (eventId) => {
       setLoading(true);
       setError(null);
       const response = await eventsAPI.getById(eventId);
-      setEvent(response.data);
+      setEvent(response);
     } catch (err) {
       console.error('Error loading event:', err);
       setError(err.message || 'Не удалось загрузить событие');

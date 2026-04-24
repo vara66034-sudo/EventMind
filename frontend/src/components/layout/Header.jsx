@@ -86,10 +86,10 @@ const Header = () => {
 
     try {
       const response = await eventsAPI.askAi(query);
-      if (response.data && response.data.success) {
-        setAiAnswer(response.data.data.answer);
+      if (response && response.success) {
+        setAiAnswer(response.data.answer);
       } else {
-        setAiAnswer('Извините, возникла ошибка при получении ответа от ИИ.');
+        setAiAnswer(response?.error || 'Извините, возникла ошибка при получении ответа от ИИ.');
       }
     } catch (error) {
       console.error('Error asking AI:', error);

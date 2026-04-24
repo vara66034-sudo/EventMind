@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -27,11 +27,13 @@ const sendAction = async (action, payload) => {
 
 export const scheduleAPI = {
   getSchedule: async (userId, status = 'planned') => {
-    return sendAction('get_schedule', { user_id: userId, status });
+    const response = await sendAction('get_schedule', { user_id: userId, status });
+    return response.success ? response.data : [];
   },
 
   getFavorites: async (userId) => {
-    return sendAction('get_favorites', { user_id: userId });
+    const response = await sendAction('get_favorites', { user_id: userId });
+    return response.success ? response.data : [];
   },
 
   addToFavorites: async (userId, eventId) => {
@@ -92,13 +94,27 @@ export const scheduleAPI = {
 
 export const eventsAPI = {
   getAll: async (params = {}) => {
-    return sendAction('get_events', params);
+    try {
+      const result = await sendAction('get_events', params);
+      
+      if (result.success && result.data) {
+        return result.data.items || [];
+      }
+      return [];
+    } catch (error) {
+      console.error('Error fetching events:', error);
+      throw error;
+    }
   },
-  getById: async (id) => sendAction('get_event', { event_id: id }),
-  getRecommendationsWithSchedule: async (userId, limit = 6) => 
-    sendAction('recommendations_with_schedule', { user_id: userId, limit }),
+  
+  getById: async (id) => {
+    const result = await sendAction('get_event', { event_id: id });
+    return result.event || result.data || result;
+  },
+  
   register: async (eventId, userData) => 
     sendAction('register_for_event', { event_id: eventId, ...userData }),
+    
   getIcs: async (id) => {
     const response = await api.post('/api/auth', {
       action: 'get_event_ics',
@@ -106,17 +122,14 @@ export const eventsAPI = {
     }, { responseType: 'blob' });
     return response;
   },
-  search: async (query, params = {}) => 
-    sendAction('search_events', { q: query, ...params }),
-
-  // Спросить ИИ
-  askAi: (question) => {
-    // В main.py endpoint /api/events принимает AuthRequest и вызывает handle_request
-    // Мы передаем action: 'ask_ai' и question
-    return api.post('/api/auth', {
-      action: 'ask_ai',
-      question: question
-    });
+  
+  search: async (query, params = {}) => {
+    const result = await sendAction('search_events', { q: query, ...params });
+    return result.success ? (result.data.items || result.data) : [];
+  },
+  
+  askAi: async (query) => {
+    return sendAction('ask_ai', { question: query });
   },
 };
 
@@ -159,7 +172,8 @@ export const authAPI = {
 
 export const userAPI = {
   getProfile: async (userId) => {
-    return sendAction('get_profile', { user_id: userId });
+    const response = await sendAction('get_profile', { user_id: userId });
+    return response.success ? response.data : response;
   },
   
   updateProfile: async (userId, data) => {
@@ -175,6 +189,10 @@ export const userAPI = {
   
   myRegistrations: async (userId) => {
     return sendAction('get_registrations', { user_id: userId });
+  },
+  
+  getRecommendationsWithSchedule: async (userId) => {
+    return sendAction('recommendations_with_schedule', { user_id: userId, limit: 10 });
   },
 };
 

@@ -173,34 +173,13 @@ class Recommender:
         else:
             return "Popular event in your area"
     
-    def record_interaction(self, user_id: int, event_id: int, interaction_type: str, tags: List[str] = None):
-        with SessionLocal() as db:
-            interaction_count = db.query(UserInteraction).filter(UserInteraction.user_id == user_id).count()
-            if interaction_count >= 100:
-                oldest = db.query(UserInteraction).filter(UserInteraction.user_id == user_id).order_by(UserInteraction.timestamp.asc()).first()
-                if oldest:
-                    db.delete(oldest)
-            
-            tags_str = ",".join(tags) if tags else ""
-            db.add(UserInteraction(
-                user_id=user_id,
-                event_id=event_id,
-                interaction_type=interaction_type,
-                tags=tags_str
-            ))
-            db.commit()
-
-        logger.info(f"Recorded {interaction_type} for user {user_id} on event {event_id}")
-    
     def _get_user_interactions(self, user_id: int) -> List[Dict]:
-        with SessionLocal() as db:
-            records = db.query(UserInteraction).filter(UserInteraction.user_id == user_id).all()
-            return [{
-                'event_id': r.event_id,
-                'type': r.interaction_type,
-                'tags': r.tags.split(',') if r.tags else [],
-                'timestamp': r.timestamp.isoformat() if r.timestamp else ''
-            } for r in records]
+        # Взаимодействия временно отключены для упрощения
+        return []
+    
+    def record_interaction(self, user_id: int, event_id: int, interaction_type: str, tags: List[str] = None):
+        # Взаимодействия временно отключены для упрощения
+        pass
     
     def update_user_profile(self, user_id: int, interests: List[str]):
         with SessionLocal() as db:

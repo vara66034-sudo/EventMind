@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import TypeFilters from '../components/events/TypeFilters';
+import { authAPI } from '../services/api';
 
 const PageContainer = styled.div`
   min-height: 100vh;
@@ -58,6 +58,11 @@ const Button = styled.button`
   &:hover {
     background: #512A59;
   }
+  
+  &:disabled {
+    background: #D9D9D9;
+    cursor: not-allowed;
+  }
 `;
 
 const LinkText = styled.p`
@@ -75,30 +80,48 @@ const LinkText = styled.p`
   }
 `;
 
+const ErrorMessage = styled.p`
+  color: #DFB6B2;
+  font-size: 14px;
+  text-align: center;
+  margin-top: 10px;
+`;
+
 const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
+    setError('');
     
     try {
-      // TODO: Интеграция с API
-      // const response = await api.post('/api/auth/login', { email, password });
-      // localStorage.setItem('token', response.data.token);
+      const response = await authAPI.login(email, password);
       
-      alert('Вход будет реализован после интеграции с API');
-      navigate('/');
-    } catch (error) {
-      console.error('Login error:', error);
-      alert('Ошибка входа');
+      if (response && response.success && response.data) {
+        localStorage.setItem('auth', JSON.stringify({
+          userId: response.data.user_id,
+          token: response.data.token,
+          user: response.data,
+        }));
+        navigate('/profile');
+      } else {
+        setError(response.error || 'Неверный ответ сервера');
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      setError('Не удалось войти. Проверьте данные или подключение к серверу.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
     <PageContainer>
-      <TypeFilters activeType="" onTypeChange={() => {}} />
       <ContentWrapper>
         <FormContainer>
           <Title>Вход</Title>
@@ -109,6 +132,7 @@ const LoginPage = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              disabled={isSubmitting}
             />
             <Input
               type="password"
@@ -116,8 +140,12 @@ const LoginPage = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              disabled={isSubmitting}
             />
-            <Button type="submit">Войти</Button>
+            {error && <ErrorMessage>{error}</ErrorMessage>}
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Вход...' : 'Войти'}
+            </Button>
           </Form>
           <LinkText>
             Нет аккаунта? <Link to="/register">Зарегистрироваться</Link>

@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import TypeFilters from '../components/events/TypeFilters';
-import { scheduleAPI, userAPI, eventsAPI } from '../services/api';
+import { scheduleAPI, userAPI } from '../services/api';
 import { AVAILABLE_TAGS } from '../constants/tags';
 
 const PageContainer = styled.div`
@@ -340,10 +339,9 @@ const RecommendationsGrid = styled.div`
 const RecommendationCard = styled.div`
   background: #854E6B;
   border-radius: 16px;
-  min-height: 120px;
+  height: 120px;
   cursor: pointer;
   transition: transform 0.3s ease;
-  overflow: hidden;
   
   &:hover {
     transform: translateY(-5px);
@@ -540,10 +538,17 @@ const TagOption = styled.div`
 `;
 
 const ProfilePage = () => {
-  const [user, setUser] = useState(null);
+  const navigate = useNavigate();
+  const [user, setUser] = useState({
+    id: 1,
+    name: 'Имя Фамилия',
+    email: 'user@example.com',
+    friendsCount: 42,
+    avatar: null,
+  });
   const [interests, setInterests] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [schedule, setSchedule] = useState([]);
   const [favorites, setFavorites] = useState([]);
@@ -564,64 +569,51 @@ const ProfilePage = () => {
   }, []);
 
   useEffect(() => {
-    if (userId) {
-      loadProfileData();
-      loadSchedule();
-      loadFavorites();
-    }
-  }, [currentMonth, userId]);
+    loadProfileData();
+    loadSchedule();
+    loadFavorites();
+    loadRecommendations();
+  }, [currentMonth]);
 
   const loadProfileData = async () => {
-    if (!userId) return;
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
     
     try {
       setLoading(true);
-      const profile = await userAPI.getProfile(userId);
+      const response = await userAPI.getProfile(userId);
       
-      setUser({
-        id: profile.id,
-        name: profile.name,
-        email: profile.email,
-        friendsCount: profile.friends_count || 0,
-        avatar: profile.avatar,
-      });
+      if (response && response.success) {
+        const profile = response.data;
+        setUser({
+          id: profile.id,
+          name: profile.name,
+          email: profile.email,
+          friendsCount: profile.friends_count || 0,
+          avatar: profile.avatar,
+        });
 
-      setInterests(profile.interests || []);
-      
-      try {
-        const recsResponse = await eventsAPI.getRecommendationsWithSchedule(userId, 6);
-        if (recsResponse && recsResponse.success && recsResponse.data) {
-          setRecommendations(recsResponse.data);
-        } else {
-          setRecommendations([]);
-        }
-      } catch (err) {
-        console.error("Error loading recommendations:", err);
-        setRecommendations([]);
+        setInterests(profile.interests || []);
       }
-      
     } catch (error) {
       console.error('Error loading profile:', error);
-      // Фолбэк на моковые данные при ошибке
-      setUser({
-        id: 1,
-        name: 'Имя Фамилия',
-        email: 'user@example.com',
-        friendsCount: 42,
-        avatar: null,
-      });
-      setInterests(['Концерты', 'Театр', 'Выставки', 'Спорт', 'Музыка']);
-      setRecommendations([]);
+      setInterests([]);
     } finally {
       setLoading(false);
     }
   };
 
   const loadSchedule = useCallback(async () => {
-    if (!userId) return;
+    console.log('Loading schedule for userId:', userId);
+    if (!userId || userId === 'null' || userId === 'undefined') {
+      setSchedule([]);
+      return;
+    }
     try {
       const response = await scheduleAPI.getSchedule(userId, 'planned');
-      setSchedule(Array.isArray(response) ? response : []);
+      setSchedule(response && response.success ? response.data : []);
     } catch (error) {
       console.error('Error loading schedule:', error);
       setSchedule([]);
@@ -629,43 +621,51 @@ const ProfilePage = () => {
   }, [userId]);
 
   const loadFavorites = useCallback(async () => {
-    if (!userId) return;
+    if (!userId) {
+      setFavorites([]);
+      return;
+    }
     try {
       const response = await scheduleAPI.getFavorites(userId);
-      setFavorites(Array.isArray(response) ? response : []);
+      setFavorites(response && response.success ? response.data : []);
     } catch (error) {
       console.error('Error loading favorites:', error);
       setFavorites([]);
     }
   }, [userId]);
 
+  const loadRecommendations = useCallback(async () => {
+    if (!userId) {
+      setRecommendations([]);
+      return;
+    }
+    try {
+      // Используем новую ручку для рекомендаций с учетом расписания
+      const response = await userAPI.getRecommendationsWithSchedule(userId);
+      if (response && response.success) {
+        setRecommendations(response.data || []);
+      }
+    } catch (error) {
+      console.error('Error loading recommendations:', error);
+      setRecommendations([]);
+    }
+  }, [userId]);
+
   useEffect(() => {
-    if (!isModalOpen && userId) {
+    if (!isModalOpen) {
       loadSchedule();
     }
-  }, [isModalOpen, loadSchedule, userId]);
+  }, [isModalOpen, loadSchedule]);
 
   const scheduleByDate = useMemo(() => {
-    const combined = [...schedule];
-    
-    favorites.forEach(fav => {
-      if (fav.date_begin || fav.start) {
-        combined.push({
-          start: fav.date_begin || fav.start,
-          name: fav.name || `Избранное #${fav.id}`,
-          type: 'favorite',
-        });
-      }
-    });
-
-    return combined.reduce((acc, event) => {
+    return schedule.reduce((acc, event) => {
       if (!event.start) return acc;
       const dateKey = event.start.split('T')[0];
       if (!acc[dateKey]) acc[dateKey] = [];
       acc[dateKey].push(event);
       return acc;
     }, {});
-  }, [schedule, favorites]);
+  }, [schedule]);
 
   const handleDayClick = (day) => {
     if (!day) return;
@@ -681,7 +681,7 @@ const ProfilePage = () => {
 
   const handleAddEvent = async (e) => {
     e.preventDefault();
-    if (!selectedDate || !userId) return;
+    if (!selectedDate) return;
     
     try {
       const [startHours, startMinutes] = newEvent.startTime.split(':');
@@ -693,14 +693,16 @@ const ProfilePage = () => {
       const end = new Date(selectedDate);
       end.setHours(parseInt(endHours), parseInt(endMinutes));
 
-      await scheduleAPI.addPersonalEvent(
-        userId,
-        newEvent.title || 'Занят',
-        start,
-        end,
-        '',
-        ''
-      );
+      if (userId) {
+        await scheduleAPI.addPersonalEvent(
+          userId,
+          newEvent.title || 'Занят',
+          start,
+          end,
+          '',
+          ''
+        );
+      }
       
       setIsModalOpen(false);
       await loadSchedule();
@@ -720,11 +722,12 @@ const ProfilePage = () => {
   };
 
   const handleRemoveInterest = async (interest) => {
-    if (!userId) return;
     try {
       const newInterests = interests.filter(i => i !== interest);
 
-      await userAPI.updateProfile(userId, { interests: newInterests });
+      if (userId) {
+        await userAPI.updateProfile(userId, { interests: newInterests });
+      }
       
       setInterests(newInterests);
     } catch (error) {
@@ -749,12 +752,14 @@ const ProfilePage = () => {
   };
 
   const handleAddSelectedTags = async () => {
-    if (!userId || selectedNewTags.length === 0) return;
+    if (selectedNewTags.length === 0) return;
     
     try {
       const allInterests = [...interests, ...selectedNewTags];
 
-      await userAPI.updateProfile(userId, { interests: allInterests });
+      if (userId) {
+        await userAPI.updateProfile(userId, { interests: allInterests });
+      }
       
       setInterests(allInterests);
       setIsAddTagModalOpen(false);
@@ -800,19 +805,16 @@ const ProfilePage = () => {
   const today = new Date().getDate();
   const days = generateMonthDays();
 
-  if (loading || !userId) {
+  if (loading) {
     return (
       <PageContainer>
-        <TypeFilters activeType="" onTypeChange={() => {}} />
-        <Loader>{!userId ? 'Требуется авторизация...' : 'Загрузка профиля...'}</Loader>
+        <Loader>Загрузка профиля...</Loader>
       </PageContainer>
     );
   }
 
   return (
     <PageContainer>
-      <TypeFilters activeType="" onTypeChange={() => {}} />
-      
       <ProfileHeader>
         <ContentWrapper>
           <ProfileTop>
@@ -898,45 +900,45 @@ const ProfilePage = () => {
 
           {activeTab === 'calendar' && (
             <>
-              <SectionTitle>Ваши интересы</SectionTitle>
+              <SectionTitle>Рекомендации для вас (на основе интересов и расписания)</SectionTitle>
               
-              <InterestsGrid>
-                {interests.map((interest, index) => (
-                  <InterestTag key={index}>
-                    {interest}
-                    <RemoveButton onClick={() => handleRemoveInterest(interest)}>
-                      ✕
-                    </RemoveButton>
-                  </InterestTag>
-                ))}
-                {remainingTags.length > 0 && (
-                  <AddInterestButton onClick={handleOpenAddTagModal}>
-                    + Добавить
-                  </AddInterestButton>
-                )}
-              </InterestsGrid>
-
-              <SectionTitle>Рекомендации для вас</SectionTitle>
+              {recommendations.length === 0 ? (
+                <p style={{ color: '#512A59', marginBottom: '30px' }}>Умные рекомендации подбираются...</p>
+              ) : (
+                <RecommendationsGrid>
+                  {recommendations.map((rec) => (
+                    <RecommendationCard 
+                      key={rec.event.id} 
+                      onClick={() => navigate(`/events/${rec.event.id}`)}
+                    >
+                      <div style={{ padding: '15px', color: '#fff' }}>
+                        <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>{rec.event.name}</div>
+                        <div style={{ fontSize: '12px', opacity: 0.8 }}>Совпадение: {Math.round(rec.score * 100)}%</div>
+                      </div>
+                    </RecommendationCard>
+                  ))}
+                </RecommendationsGrid>
+              )}
               
-              <RecommendationsGrid>
-                {recommendations.length > 0 ? recommendations.map((rec, idx) => (
-                  <RecommendationCard key={rec.id || idx}>
-                    <div style={{ padding: '15px', color: '#fff', height: '100%', boxSizing: 'border-box' }}>
-                      <h4 style={{ margin: '0 0 10px 0', fontSize: '15px' }}>{rec.event?.name || 'Рекомендация'}</h4>
-                      <p style={{ fontSize: '12px', opacity: 0.8, margin: '0 0 10px 0' }}>
-                        {rec.event?.date_begin ? new Date(rec.event.date_begin.replace('Z', '')).toLocaleString('ru-RU', {day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'}) : 'Скоро'}
-                      </p>
-                      {rec.explanation && (
-                        <p style={{ fontSize: '12px', margin: 0, fontStyle: 'italic', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                          {rec.explanation}
-                        </p>
-                      )}
-                    </div>
-                  </RecommendationCard>
-                )) : (
-                  <p style={{ color: '#512A59' }}>Нет доступных рекомендаций.</p>
-                )}
-              </RecommendationsGrid>
+              <div style={{ marginTop: '40px' }}>
+                <SectionTitle>Ваши интересы</SectionTitle>
+                
+                <InterestsGrid>
+                  {interests.map((interest, index) => (
+                    <InterestTag key={index}>
+                      {interest}
+                      <RemoveButton onClick={() => handleRemoveInterest(interest)}>
+                        ✕
+                      </RemoveButton>
+                    </InterestTag>
+                  ))}
+                  {remainingTags.length > 0 && (
+                    <AddInterestButton onClick={handleOpenAddTagModal}>
+                      + Добавить
+                    </AddInterestButton>
+                  )}
+                </InterestsGrid>
+              </div>
             </>
           )}
 
@@ -953,7 +955,7 @@ const ProfilePage = () => {
               ) : (
                 <FavoritesGrid>
                   {favorites.map((event) => (
-                    <FavoriteCard key={event.id}>
+                    <FavoriteCard key={event.id} onClick={() => navigate(`/events/${event.id}`)} style={{ cursor: 'pointer' }}>
                       <FavoriteTitle>{event.name}</FavoriteTitle>
                       {event.start && (
                         <FavoriteInfo>📅 {formatTime(event.start)}</FavoriteInfo>
@@ -982,12 +984,10 @@ const ProfilePage = () => {
             {scheduleByDate[selectedDate.toISOString().split('T')[0]]?.length > 0 ? (
               <EventList>
                 {scheduleByDate[selectedDate.toISOString().split('T')[0]].map((event, i) => (
-                  <EventListItem key={i} style={event.type === 'favorite' ? { background: '#DFB6B2' } : {}}>
+                  <EventListItem key={i}>
                     <div>
                       <strong>{formatTime(event.start)}</strong>
-                      <div style={{ fontSize: '13px', color: '#512A59' }}>
-                        {event.type === 'favorite' ? '⭐ ' : ''}{event.name}
-                      </div>
+                      <div style={{ fontSize: '13px', color: '#512A59' }}>{event.name}</div>
                     </div>
                   </EventListItem>
                 ))}

@@ -43,28 +43,28 @@ const Grid = styled.div`
 // Тестовые данные для рекомендаций
 const recommendedEvents = [
   {
-    id: 101,
+    id: 67,
     name: 'ИТ-Конференция',
     date_begin: '2024-04-18 20:00:00',
     location: 'Москва',
     image: "https://it-elements.ru/images/tild6333-3332-4531-a238-643733316137__rectangle_167_1.jpg",
   },
   {
-    id: 102,
+    id: 2,
     name: 'ЕКОД',
     date_begin: '2024-04-22 19:00:00',
     location: 'Санкт-Петербург',
     image: "https://www.sostav.ru/images/news/2024/10/28/8hmzdk0w.jpg",
   },
   {
-    id: 103,
+    id: 66,
     name: 'Dev.by',
     date_begin: '2024-04-25 11:00:00',
     location: 'Екатеринбург',
     image: "https://avatars.mds.yandex.net/i?id=915530a742b985ef93a5b7561b5c5803_l-4353628-images-thumbs&n=13",
   },
   {
-    id: 104,
+    id: 12,
     name: 'ГеймДев',
     date_begin: '2024-04-28 15:00:00',
     location: 'Казань',
