@@ -17,7 +17,7 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "rm -rf ./build && react-scripts build",
+    "build": "if exist build rd /s /q build && react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },

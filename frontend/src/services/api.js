@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://204.12.253.210:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -27,8 +27,15 @@ const sendAction = async (action, payload) => {
 
 export const scheduleAPI = {
   getSchedule: async (userId, status = 'planned') => {
-    const response = await sendAction('get_schedule', { user_id: userId, status });
-    return response.success ? response.data : [];
+    return sendAction('get_schedule', { user_id: userId, status });
+  },
+
+  addToSchedule: async (userId, eventId) => {
+    return sendAction('add_to_schedule', { user_id: userId, event_id: eventId });
+  },
+
+  removeFromSchedule: async (userId, eventId) => {
+    return sendAction('remove_from_schedule', { user_id: userId, event_id: eventId });
   },
 
   getFavorites: async (userId) => {

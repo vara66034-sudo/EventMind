@@ -358,7 +358,7 @@ class AgentAPI:
             conn.commit()
             conn.close()
             
-            token = secrets.token_hex(16)
+            token = hashlib.sha256(f"{email}:{password}:{secrets.token_hex(16)}".encode()).hexdigest()
             return {
                 'success': True,
                 'data': {
@@ -366,7 +366,8 @@ class AgentAPI:
                     'token': token,
                     'email': email,
                     'name': user_name
-                }
+                },
+                'message': 'Registration successful'
             }
         except Exception as e:
             logger.error(f"CRITICAL SQL ERROR in register_user: {e}")
@@ -404,7 +405,6 @@ class AgentAPI:
 
     def get_profile(self, user_id: int) -> Dict:
         try:
-            # Преобразуем к int
             if user_id is not None:
                 user_id = int(user_id)
             
@@ -419,14 +419,17 @@ class AgentAPI:
                 return {
                     'success': True,
                     'data': {
-                        'id': user.id,
-                        'name': user.name,
-                        'email': user.email,
-                        'interests': interest_list
+                        'id': user_id,
+                        'user_id': user_id,
+                        'name': user.name or 'Пользователь',
+                        'email': user.email or '',
+                        'interests': interest_list,
+                        'friends_count': 0,
+                        'avatar': None,
                     }
                 }
         except Exception as e:
-            logger.error(f"Error fetching profile for {user_id}: {e}")
+            logger.error(f"Get profile error: {e}")
             return {'success': False, 'error': str(e)}
 
     def get_event(self, event_id: int) -> Dict:
@@ -568,7 +571,7 @@ class AgentAPI:
         elif action == 'export_ics':
             return self.export_ics(request_data.get('user_id'))
         elif action == 'get_profile':
-            return self.get_profile(request_data.get('user_id'))
+            return self.get_profile(user_id=request_data.get('user_id'))
         elif action == 'login':
             return self.login_user(request_data.get('email'), request_data.get('password'))
         elif action == 'register':
