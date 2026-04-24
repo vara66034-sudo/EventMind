@@ -645,11 +645,26 @@ class AgentAPI:
 
     def get_recommendations_with_schedule(self, user_id: int, limit: int = 10, use_llm: bool = True) -> Dict:
         try:
-            events = self._fetch_events()
-            if not events:
-                return {'success': True, 'data': [], 'message': 'No events available'}
+            if user_id is None:
+                return {'success': False, 'error': 'Invalid user_id'}
 
-            # Используем метод рекомендаций с учетом календаря
+            user_id = int(user_id)
+            limit = int(limit or 10)
+
+            events = self._fetch_events(force_refresh=True)
+
+            if not events:
+                return {
+                    'success': True,
+                    'data': [],
+                    'ai_advice': None,
+                    'message': 'No events available'
+                }
+
+            # Важно: сначала синхронизируем календарь из БД,
+            # чтобы recommender видел реальные занятые слоты пользователя.
+            self._sync_calendar(user_id)
+
             recs = self.recommender.get_recommendations_with_schedule(
                 user_id=user_id,
                 events=events,
@@ -657,57 +672,31 @@ class AgentAPI:
                 include_explanation=True
             )
 
-            calendar = self._sync_calendar(user_id)
-            scored = []
-
-            for rec in recs:
-                event = rec['event']
-                relevance = rec['score']
-
-                available = False
-                if event.get('date_begin'):
-                    try:
-                        event_date = datetime.fromisoformat(event['date_begin'].replace('Z', '+00:00'))
-                        available = calendar.is_available(event_date, duration_hours=2)
-                    except Exception as e:
-                        logger.error(f"Error parsing event date: {e}")
-                        available = True
-
-                final_score = relevance * 0.6 + (1.0 if available else 0.0) * 0.4
-                if final_score > 0 and available: # Берем только те, где реально есть время
-                    result = {
-                        'event': event,
-                        'score': final_score,
-                        'relevance_score': relevance,
-                        'available': available,
-                        'id': event.get('id')
-                    }
-                    if rec.get('explanation'):
-                        result['explanation'] = rec['explanation']
-                    scored.append(result)
-
-            scored.sort(key=lambda x: -x['score'])
-            top_events = scored[:limit]
-
-            # >>> ИНТЕГРАЦИЯ GIGACHAT <<<
             llm_message = None
-            if use_llm and top_events:
-                llm_service = get_llm_service()
-                # Извлекаем интересы пользователя (у вас уже должен быть метод для этого)
-                user_interests = self.recommender._get_user_interests(user_id) 
-                
-                # Достаем "чистые" словари событий из результатов
-                clean_events = [item['event'] for item in top_events[:3]] # Берем топ-3 для LLM, чтобы не перегружать
-                
-                # Генерируем текст
-                llm_message = llm_service.generate_personal_advice(user_interests, clean_events)
+
+            if use_llm and recs:
+                try:
+                    llm_service = get_llm_service()
+                    user_interests = self.recommender._get_user_interests(user_id)
+                    clean_events = [item['event'] for item in recs[:3]]
+
+                    llm_message = llm_service.generate_personal_advice(
+                        user_interests,
+                        clean_events
+                    )
+                except Exception as llm_error:
+                    logger.error(f"LLM advice error: {llm_error}")
+                    llm_message = None
 
             return {
                 'success': True,
-                'data': top_events,
-                'ai_advice': llm_message, # Отдаем сгенерированный текст на фронтенд
-                'user_id': user_id
+                'data': recs,
+                'ai_advice': llm_message,
+                'user_id': user_id,
+                'count': len(recs),
+                'generated_at': datetime.now().isoformat()
             }
+
         except Exception as e:
             logger.error(f"Error in recommendations_with_schedule: {e}")
             return {'success': False, 'error': str(e)}
