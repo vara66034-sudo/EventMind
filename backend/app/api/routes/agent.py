@@ -15,7 +15,15 @@ from ...services.agent.orchestrator import get_agent
 from ...services.recommendations.service import get_recommender
 from ...services.calendar.user_calendar import get_user_calendar, TimeSlot
 from ...schedule.models import SessionLocal, UserSchedule, UserInterest, User
-from ...schedule.services import add_favorite, remove_favorite, get_favorites, add_personal_event
+from ...schedule.services import (
+    add_favorite,
+    remove_favorite,
+    get_favorites,
+    add_personal_event,
+    send_email,
+    run_reminder_job,
+    get_pending_notification_stats,
+)
 from ...integrations.llm.gigachat_service import get_llm_service
 from ...integrations.calendar.ics_generator import get_ics_generator
 
@@ -267,60 +275,96 @@ class AgentAPI:
 
     def add_platform_event(self, user_id: int, event_id: int) -> Dict:
         try:
-            if user_id is not None:
-                user_id = int(user_id)
-            if event_id is not None:
-                event_id = int(event_id)
-                
+            if user_id is None or event_id is None:
+                return {"success": False, "error": "Invalid user_id or event_id"}
+
+            user_id = int(user_id)
+            event_id = int(event_id)
+
+            events = self._fetch_events(force_refresh=True)
+            event = next((e for e in events if int(e.get("id")) == event_id), None)
+
+            event_start_date = None
+
+            if event and event.get("date_begin"):
+                event_start_date = datetime.fromisoformat(
+                    str(event["date_begin"]).replace("Z", "+00:00")
+                )
+
+                if event_start_date.tzinfo is not None:
+                    event_start_date = event_start_date.replace(tzinfo=None)
+
             with SessionLocal() as db:
-                # Проверяем, нет ли уже такого события
-                existing = db.query(UserSchedule).filter(
-                    UserSchedule.user_id == user_id,
-                    UserSchedule.event_id == event_id
-                ).first()
-                
+                existing = (
+                    db.query(UserSchedule)
+                    .filter(
+                        UserSchedule.user_id == user_id,
+                        UserSchedule.event_id == event_id,
+                    )
+                    .first()
+                )
+
                 if existing:
-                    return {'success': True, 'message': 'Event already in schedule'}
-                
+                    if event_start_date and not existing.event_start_date:
+                        existing.event_start_date = event_start_date
+                        existing.reminder_sent = False
+                        existing.reminder_sent_at = None
+                        db.commit()
+
+                    return {
+                        "success": True,
+                        "message": "Event already in schedule",
+                    }
+
                 new_item = UserSchedule(
                     user_id=user_id,
                     event_id=event_id,
+                    event_start_date=event_start_date,
                     is_personal=False,
-                    status='planned'
+                    status="planned",
+                    reminder_sent=False,
+                    reminder_sent_at=None,
                 )
+
                 db.add(new_item)
                 db.commit()
-            return {'success': True}
+
+            return {"success": True}
+
         except Exception as e:
             logger.error(f"Error adding platform event: {e}")
-            return {'success': False, 'error': str(e)}
+            return {"success": False, "error": str(e)}
 
     def add_personal_event(self, user_id: int, title: str, start: str, end: str = None, description: str = '', location: str = '') -> Dict:
         try:
             if user_id is not None:
                 user_id = int(user_id)
-            
+
             # Парсим даты из ISO формата
-            start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
-            end_dt = datetime.fromisoformat(end.replace('Z', '+00:00')) if end else None
-            
+            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+            end_dt = (
+                datetime.fromisoformat(end.replace("Z", "+00:00")) if end else None
+            )
+
             with SessionLocal() as db:
                 new_item = UserSchedule(
                     user_id=user_id,
                     is_personal=True,
                     personal_title=title,
-                    personal_start=start_dt,
-                    personal_end=end_dt,
+                    personal_start=start_dt.replace(tzinfo=None) if start_dt.tzinfo else start_dt,
+                    personal_end=end_dt.replace(tzinfo=None) if end_dt and end_dt.tzinfo else end_dt,
                     personal_description=description,
                     personal_location=location,
-                    status='planned'
+                    status="planned",
+                    reminder_sent=False,
+                    reminder_sent_at=None,
                 )
                 db.add(new_item)
                 db.commit()
-            return {'success': True}
+            return {"success": True}
         except Exception as e:
             logger.error(f"Error adding personal event: {e}")
-            return {'success': False, 'error': str(e)}
+            return {"success": False, "error": str(e)}
 
     def register_user(self, email: str, password: str, name: str = None, interests: List[str] = None) -> Dict:
         try:
@@ -714,6 +758,82 @@ class AgentAPI:
             logger.error(f"Error removing favorite: {e}")
             return {'success': False, 'error': str(e)}
 
+    def _get_user_email(self, user_id: int) -> Optional[str]:
+        try:
+            with SessionLocal() as db:
+                user = db.query(User).filter(User.id == int(user_id)).first()
+
+                if not user:
+                    return None
+
+                return user.email
+
+        except Exception as e:
+            logger.error(f"Failed to get user email: {e}")
+            return None
+
+    def send_test_notification(self, user_id: int = None, email: str = None) -> Dict:
+        try:
+            target_email = email
+
+            if not target_email and user_id is not None:
+                target_email = self._get_user_email(user_id)
+
+            if not target_email:
+                return {
+                    "success": False,
+                    "error": "Email не найден. Передай email или user_id.",
+                }
+
+            send_email(
+                to=target_email,
+                subject="✅ Тестовое уведомление EventMind",
+                body="""
+                <div style="font-family:Arial,sans-serif;background:#FBE4D8;padding:24px;border-radius:18px;">
+                    <h2 style="color:#180018;">EventMind работает 🎉</h2>
+                    <p style="color:#512A59;font-size:16px;">
+                        Это тестовое письмо. Значит SMTP-настройки подключены правильно.
+                    </p>
+                </div>
+                """,
+            )
+
+            return {
+                "success": True,
+                "message": f"Тестовое письмо отправлено на {target_email}",
+            }
+
+        except Exception as e:
+            logger.error(f"Test notification error: {e}")
+            return {"success": False, "error": str(e)}
+
+    def run_notifications_now(self) -> Dict:
+        try:
+            result = run_reminder_job(SessionLocal, self._get_user_email)
+
+            return {
+                "success": True,
+                "data": result,
+            }
+
+        except Exception as e:
+            logger.error(f"Manual notification job error: {e}")
+            return {"success": False, "error": str(e)}
+
+    def get_notification_stats(self) -> Dict:
+        try:
+            with SessionLocal() as db:
+                stats = get_pending_notification_stats(db)
+
+            return {
+                "success": True,
+                "data": stats,
+            }
+
+        except Exception as e:
+            logger.error(f"Notification stats error: {e}")
+            return {"success": False, "error": str(e)}
+
     def handle_request(self, request_data: Dict) -> Dict:
         action = request_data.get('action')
         if not action:
@@ -742,6 +862,19 @@ class AgentAPI:
             return self.get_event_ics(request_data.get('event_id'))
         elif action == 'export_ics':
             return self.export_ics(request_data.get('user_id'))
+
+        elif action == "send_test_notification":
+            return self.send_test_notification(
+                user_id=request_data.get("user_id"),
+                email=request_data.get("email"),
+            )
+
+        elif action == "run_notifications_now":
+            return self.run_notifications_now()
+
+        elif action == "get_notification_stats":
+            return self.get_notification_stats()
+
         elif action == 'get_profile':
             return self.get_profile(user_id=request_data.get('user_id'))
         elif action == 'login':
