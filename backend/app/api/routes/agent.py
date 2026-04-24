@@ -512,41 +512,6 @@ class AgentAPI:
                 "error": f"Ошибка загрузки событий: {str(e)}",
             }
 
-    def login_user(self, email: str, password: str) -> Dict:
-        # Временная имитация входа (так как Odoo удален)
-        token = hashlib.sha256(f"{email}:{password}:{secrets.token_hex(16)}".encode()).hexdigest()
-        return {
-            'success': True,
-            'data': {
-                'user_id': 1,
-                'email': email,
-                'name': email.split('@')[0],
-                'token': token
-            }
-        }
-
-    def register_user(self, email: str, password: str, name: str = None, interests: List[str] = None) -> Dict:
-        # Временная имитация регистрации
-        user_id = 1
-        if interests:
-            with SessionLocal() as db:
-                # Очищаем старые интересы для этого пользователя перед добавлением (имитация)
-                db.query(UserInterest).filter(UserInterest.user_id == user_id).delete()
-                for interest in interests:
-                    db.add(UserInterest(user_id=user_id, interest=interest))
-                db.commit()
-        
-        token = hashlib.sha256(f"{email}:{password}:{secrets.token_hex(16)}".encode()).hexdigest()
-        return {
-            'success': True,
-            'data': {
-                'user_id': user_id, 
-                'email': email, 
-                'name': name or email.split('@')[0],
-                'token': token
-            },
-            'message': 'Registration successful'
-        }
 
     def logout_user(self, token: str) -> Dict:
         logger.info(f"User logged out (token: {token[:10]}...)")
