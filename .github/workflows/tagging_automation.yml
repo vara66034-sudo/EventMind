@@ -2,7 +2,7 @@ name: EventMind Autotagging
 
 on:
   schedule:
-    - cron: "5 5 * * *"   # Запуск каждый день в 05:05 по UTC
+    - cron: "10 5 * * *"   # Запуск каждый день в 05:10 по UTC
   workflow_dispatch:
 
 jobs:
