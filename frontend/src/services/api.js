@@ -5,7 +5,7 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { 'Content-Type': 'application/json' },
-  withCredentials: true,
+  withCredentials: false,
   timeout: 10000,
 });
 
@@ -172,8 +172,7 @@ export const authAPI = {
 
 export const userAPI = {
   getProfile: async (userId) => {
-    const response = await sendAction('get_profile', { user_id: userId });
-    return response.success ? response.data : response;
+    return sendAction('get_profile', { user_id: userId });
   },
   
   updateProfile: async (userId, data) => {

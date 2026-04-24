@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS events (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS users_interests (
+CREATE TABLE IF NOT EXISTS user_interests (
     id SERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL,
     interest TEXT NOT NULL
