@@ -542,6 +542,178 @@ class AgentAPI:
                 'error': f"Ошибка AI ассистента: {str(e)}"
             }
 
+    def get_user_favorites(self, user_id: int) -> Dict:
+        try:
+            if user_id is None:
+                return {'success': False, 'error': 'Invalid user_id'}
+
+            user_id = int(user_id)
+
+            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+            cur.execute(
+                """
+                SELECT
+                    uf.event_id,
+                    uf.added_at,
+                    e.id AS real_event_id,
+                    e.title,
+                    e.event_date,
+                    e.location,
+                    e.description,
+                    e.tags,
+                    e.image_url,
+                    e.source,
+                    e.source_url
+                FROM user_favorites uf
+                LEFT JOIN events e ON e.id = uf.event_id
+                WHERE uf.user_id = %s
+                ORDER BY uf.added_at DESC
+                """,
+                (user_id,)
+            )
+
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+
+            items = []
+
+            for row in rows:
+                event_id = int(row['event_id'])
+                event_date = row.get('event_date')
+
+                items.append({
+                    'id': event_id,
+                    'event_id': event_id,
+                    'name': row.get('title') or f'Событие #{event_id}',
+                    'title': row.get('title') or f'Событие #{event_id}',
+                    'date_begin': event_date.isoformat() if event_date else None,
+                    'start': event_date.isoformat() if event_date else None,
+                    'location': row.get('location') or '',
+                    'description': row.get('description') or '',
+                    'tags': row.get('tags') or [],
+                    'image': row.get('image_url'),
+                    'source': row.get('source'),
+                    'source_url': row.get('source_url'),
+                    'added_at': row.get('added_at').isoformat() if row.get('added_at') else None,
+                })
+
+            return {
+                'success': True,
+                'data': items,
+                'count': len(items),
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting user favorites: {e}")
+            return {'success': False, 'error': str(e)}
+
+
+    def add_user_favorite(self, user_id: int, event_id: int) -> Dict:
+        try:
+            if user_id is None or event_id is None:
+                return {'success': False, 'error': 'Invalid user_id or event_id'}
+
+            user_id = int(user_id)
+            event_id = int(event_id)
+
+            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+            cur.execute(
+                "SELECT event_date FROM events WHERE id = %s",
+                (event_id,)
+            )
+            event_row = cur.fetchone()
+            event_start_date = event_row['event_date'] if event_row else None
+
+            cur.execute(
+                """
+                SELECT id
+                FROM user_favorites
+                WHERE user_id = %s AND event_id = %s
+                LIMIT 1
+                """,
+                (user_id, event_id)
+            )
+            existing = cur.fetchone()
+
+            if existing:
+                cur.execute(
+                    """
+                    UPDATE user_favorites
+                    SET event_start_date = COALESCE(%s, event_start_date)
+                    WHERE user_id = %s AND event_id = %s
+                    """,
+                    (event_start_date, user_id, event_id)
+                )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO user_favorites
+                        (user_id, event_id, event_start_date, reminder_sent, added_at)
+                    VALUES
+                        (%s, %s, %s, FALSE, NOW())
+                    """,
+                    (user_id, event_id, event_start_date)
+                )
+
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            return {
+                'success': True,
+                'data': {
+                    'user_id': user_id,
+                    'event_id': event_id,
+                    'is_favorite': True,
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Error adding favorite: {e}")
+            return {'success': False, 'error': str(e)}
+
+
+    def remove_user_favorite(self, user_id: int, event_id: int) -> Dict:
+        try:
+            if user_id is None or event_id is None:
+                return {'success': False, 'error': 'Invalid user_id or event_id'}
+
+            user_id = int(user_id)
+            event_id = int(event_id)
+
+            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
+            cur = conn.cursor()
+
+            cur.execute(
+                """
+                DELETE FROM user_favorites
+                WHERE user_id = %s AND event_id = %s
+                """,
+                (user_id, event_id)
+            )
+
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            return {
+                'success': True,
+                'data': {
+                    'user_id': user_id,
+                    'event_id': event_id,
+                    'is_favorite': False,
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Error removing favorite: {e}")
+            return {'success': False, 'error': str(e)}
+
     def handle_request(self, request_data: Dict) -> Dict:
         action = request_data.get('action')
         if not action:
@@ -582,63 +754,19 @@ class AgentAPI:
                 interests=request_data.get('interests')
             )
         elif action == 'get_favorites':
-            user_id = request_data.get('user_id')
-            with SessionLocal() as db:
-                fav_ids = get_favorites(db, user_id=user_id)
-            events = self._fetch_events()
-            fav_events = [e for e in events if e.get('id') in fav_ids]
-            return {'success': True, 'data': fav_events}
+            return self.get_user_favorites(
+                user_id=request_data.get('user_id')
+            )
         elif action == 'add_favorite':
-            user_id = request_data.get('user_id')
-            event_id = request_data.get('event_id')
-
-            if user_id is None or event_id is None:
-                return {'success': False, 'error': 'Invalid user_id or event_id'}
-
-            user_id = int(user_id)
-            event_id = int(event_id)
-
-            event_start_date = None
-
-            events = self._fetch_events(force_refresh=True)
-            event = next((e for e in events if int(e.get('id')) == event_id), None)
-
-            if event and event.get('date_begin'):
-                try:
-                    event_start_date = datetime.fromisoformat(
-                        str(event['date_begin']).replace('Z', '+00:00')
-                    )
-
-                    if event_start_date.tzinfo is not None:
-                        event_start_date = event_start_date.replace(tzinfo=None)
-                except Exception as e:
-                    logger.error(f"Error parsing favorite event date: {e}")
-                    event_start_date = None
-
-            with SessionLocal() as db:
-                add_favorite(
-                    db,
-                    user_id=user_id,
-                    event_id=event_id,
-                    event_start_date=event_start_date
-                )
-
-            return {'success': True}
+            return self.add_user_favorite(
+                user_id=request_data.get('user_id'),
+                event_id=request_data.get('event_id')
+            )
         elif action == 'remove_favorite':
-            user_id = request_data.get('user_id')
-            event_id = request_data.get('event_id')
-
-            if user_id is None or event_id is None:
-                return {'success': False, 'error': 'Invalid user_id or event_id'}
-
-            with SessionLocal() as db:
-                remove_favorite(
-                    db,
-                    user_id=int(user_id),
-                    event_id=int(event_id)
-                )
-
-            return {'success': True}
+            return self.remove_user_favorite(
+                user_id=request_data.get('user_id'),
+                event_id=request_data.get('event_id')
+            )
         elif action == 'get_schedule':
             u_id = request_data.get('user_id')
             # Защита от кривых данных с фронтенда

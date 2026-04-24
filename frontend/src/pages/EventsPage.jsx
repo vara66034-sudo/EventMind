@@ -71,6 +71,23 @@ const ErrorMessage = styled.div`
   font-size: 18px;
 `;
 
+const getEventId = (event) => {
+  const rawId = event?.id ?? event?.event_id;
+  const id = Number(rawId);
+
+  return Number.isFinite(id) ? id : null;
+};
+
+const extractFavoritesList = (response) => {
+  if (Array.isArray(response)) return response;
+
+  if (response?.success && Array.isArray(response.data)) {
+    return response.data;
+  }
+
+  return [];
+};
+
 const EventsPage = () => {
   const [selectedCity, setSelectedCity] = useState(null);
   const [favoriteIds, setFavoriteIds] = useState(new Set());
@@ -86,24 +103,37 @@ const EventsPage = () => {
   
   const { events, loading, error, refetch } = useEvents(data);
 
-  useEffect(() => {
-    if (userId) {
-      loadFavorites();
+  const loadFavorites = useCallback(async () => {
+    if (!userId) {
+      setFavoriteIds(new Set());
+      return;
     }
-  }, [userId]);
 
-  const loadFavorites = async () => {
-    if (!userId) return;
     try {
       const response = await scheduleAPI.getFavorites(userId);
-      const data = Array.isArray(response) ? response : [];
-      const ids = new Set(data.map(event => event.id));
+
+      if (!Array.isArray(response) && response?.success === false) {
+        throw new Error(response.error || 'Не удалось загрузить избранное');
+      }
+
+      const favorites = extractFavoritesList(response);
+
+      const ids = new Set(
+        favorites
+          .map(getEventId)
+          .filter((id) => id !== null)
+      );
+
       setFavoriteIds(ids);
     } catch (err) {
       console.error('Error loading favorites:', err);
       setFavoriteIds(new Set());
     }
-  };
+  }, [userId]);
+
+  useEffect(() => {
+    loadFavorites();
+  }, [loadFavorites]);
 
   const handleCitySelect = (city) => {
     setSelectedCity(city === 'Все города' ? null : city);
@@ -120,25 +150,45 @@ const EventsPage = () => {
     }
   }, [refetch]);
 
-  const handleToggleFavorite = useCallback(async (userId, eventId, shouldBeFavorite) => {
-    if (!userId) return;
+  const handleToggleFavorite = useCallback(async (clickedUserId, eventId, shouldBeFavorite) => {
+    const actualUserId = clickedUserId || userId;
+    const normalizedEventId = Number(eventId);
+
+    if (!actualUserId) {
+      alert('Войдите в аккаунт, чтобы добавить событие в избранное');
+      return;
+    }
+
+    if (!Number.isFinite(normalizedEventId)) {
+      alert('Некорректный ID события');
+      return;
+    }
+
     try {
-      if (shouldBeFavorite) {
-        await scheduleAPI.addToFavorites(userId, eventId);
-        setFavoriteIds(prev => new Set(prev).add(eventId));
-      } else {
-        await scheduleAPI.removeFromFavorites(userId, eventId);
-        setFavoriteIds(prev => {
-          const next = new Set(prev);
-          next.delete(eventId);
-          return next;
-        });
+      const response = shouldBeFavorite
+        ? await scheduleAPI.addToFavorites(actualUserId, normalizedEventId)
+        : await scheduleAPI.removeFromFavorites(actualUserId, normalizedEventId);
+
+      if (!response?.success) {
+        throw new Error(response?.error || 'Backend не сохранил избранное');
       }
+
+      setFavoriteIds((prev) => {
+        const next = new Set(prev);
+
+        if (shouldBeFavorite) {
+          next.add(normalizedEventId);
+        } else {
+          next.delete(normalizedEventId);
+        }
+
+        return next;
+      });
     } catch (err) {
       console.error('Error toggling favorite:', err);
-      alert('Не удалось обновить избранное');
+      alert(err.message || 'Не удалось обновить избранное');
     }
-  }, []);
+  }, [userId]);
 
   if (loading) {
     return (
@@ -161,16 +211,20 @@ const EventsPage = () => {
         <ContentWrapper>
           <EventsGrid>
             {displayEvents.length > 0 ? (
-              displayEvents.map((event) => (
-                <EventCard 
-                  key={event.id} 
-                  event={event}
-                  userId={userId}
-                  onAddToSchedule={handleAddToSchedule}
-                  onToggleFavorite={handleToggleFavorite}
-                  isFavorite={favoriteIds.has(event.id)}
-                />
-              ))
+              displayEvents.map((event) => {
+                const eventId = getEventId(event);
+
+                return (
+                  <EventCard 
+                    key={eventId ?? event.id} 
+                    event={event}
+                    userId={userId}
+                    onAddToSchedule={handleAddToSchedule}
+                    onToggleFavorite={handleToggleFavorite}
+                    isFavorite={eventId !== null && favoriteIds.has(eventId)}
+                  />
+                );
+              })
             ) : (
               <ErrorMessage>События не найдены</ErrorMessage>
             )}

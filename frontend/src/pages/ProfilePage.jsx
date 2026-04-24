@@ -656,20 +656,30 @@ const ProfilePage = () => {
   }, [userId]);
 
   const loadFavorites = useCallback(async () => {
-    if (!userId) {
+    if (!userId || userId === 'null' || userId === 'undefined') {
       setFavorites([]);
       return;
     }
+
     try {
       const response = await scheduleAPI.getFavorites(userId);
-      
+
+      if (!Array.isArray(response) && response?.success === false) {
+        throw new Error(response.error || 'Не удалось загрузить избранное');
+      }
+
       const favoritesData = Array.isArray(response)
         ? response
-        : response?.success
-          ? response.data
-          : [];
+        : response?.data || [];
 
-      setFavorites(favoritesData || []);
+      setFavorites(
+        favoritesData.map((event) => ({
+          ...event,
+          id: Number(event.id ?? event.event_id),
+          name: event.name || event.title || `Событие #${event.id ?? event.event_id}`,
+          start: event.start || event.date_begin || event.event_date,
+        }))
+      );
     } catch (error) {
       console.error('Error loading favorites:', error);
       setFavorites([]);
