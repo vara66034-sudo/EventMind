@@ -25,7 +25,7 @@ jobs:
 
       - name: Run tagging script
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_TAG: ${{ secrets.DATABASE_URL_TAG }}
         run: |
             export PYTHONPATH=$PYTHONPATH:$(pwd)
             python backend/ml/autotagger/main.py
