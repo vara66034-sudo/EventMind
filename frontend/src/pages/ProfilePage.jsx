@@ -548,6 +548,8 @@ const ProfilePage = () => {
   });
   const [interests, setInterests] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
+  const [aiAdvice, setAiAdvice] = useState(null);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [schedule, setSchedule] = useState([]);
@@ -635,19 +637,31 @@ const ProfilePage = () => {
   }, [userId]);
 
   const loadRecommendations = useCallback(async () => {
-    if (!userId) {
+    if (!userId || userId === 'null' || userId === 'undefined') {
       setRecommendations([]);
+      setAiAdvice(null);
       return;
     }
+
     try {
-      // Используем новую ручку для рекомендаций с учетом расписания
-      const response = await userAPI.getRecommendationsWithSchedule(userId);
+      setRecommendationsLoading(true);
+
+      const response = await userAPI.getRecommendationsWithSchedule(userId, 10);
+
       if (response && response.success) {
-        setRecommendations(response.data || []);
+        setRecommendations(Array.isArray(response.data) ? response.data : []);
+        setAiAdvice(response.ai_advice || null);
+      } else {
+        console.error('Recommendations error:', response?.error);
+        setRecommendations([]);
+        setAiAdvice(null);
       }
     } catch (error) {
       console.error('Error loading recommendations:', error);
       setRecommendations([]);
+      setAiAdvice(null);
+    } finally {
+      setRecommendationsLoading(false);
     }
   }, [userId]);
 
@@ -706,6 +720,7 @@ const ProfilePage = () => {
       
       setIsModalOpen(false);
       await loadSchedule();
+      await loadRecommendations();
     } catch (error) {
       console.error('Error adding event:', error);
       alert('Ошибка добавления события');
@@ -730,6 +745,7 @@ const ProfilePage = () => {
       }
       
       setInterests(newInterests);
+      await loadRecommendations();
     } catch (error) {
       console.error('Error removing interest:', error);
       alert('Не удалось удалить интерес');
@@ -764,6 +780,8 @@ const ProfilePage = () => {
       setInterests(allInterests);
       setIsAddTagModalOpen(false);
       setSelectedNewTags([]);
+
+      await loadRecommendations();
     } catch (error) {
       console.error('Error adding interests:', error);
       alert('Не удалось добавить интересы');
@@ -900,23 +918,70 @@ const ProfilePage = () => {
 
           {activeTab === 'calendar' && (
             <>
-              <SectionTitle>Рекомендации для вас (на основе интересов и расписания)</SectionTitle>
-              
-              {recommendations.length === 0 ? (
-                <p style={{ color: '#512A59', marginBottom: '30px' }}>Умные рекомендации подбираются...</p>
+              <SectionTitle>Рекомендации для вас</SectionTitle>
+
+              {aiAdvice && (
+                <div
+                  style={{
+                    background: '#FBE4D8',
+                    color: '#180018',
+                    padding: '16px 20px',
+                    borderRadius: '16px',
+                    marginBottom: '20px',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <strong>Совет AI:</strong> {aiAdvice}
+                </div>
+              )}
+
+              {recommendationsLoading ? (
+                <p style={{ color: '#512A59', marginBottom: '30px' }}>
+                  Подбираем рекомендации...
+                </p>
+              ) : recommendations.length === 0 ? (
+                <p style={{ color: '#512A59', marginBottom: '30px' }}>
+                  Пока нет подходящих рекомендаций. Добавьте интересы или проверьте, что в базе есть будущие события с тегами.
+                </p>
               ) : (
                 <RecommendationsGrid>
-                  {recommendations.map((rec) => (
-                    <RecommendationCard 
-                      key={rec.event.id} 
-                      onClick={() => navigate(`/events/${rec.event.id}`)}
-                    >
-                      <div style={{ padding: '15px', color: '#fff' }}>
-                        <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>{rec.event.name}</div>
-                        <div style={{ fontSize: '12px', opacity: 0.8 }}>Совпадение: {Math.round(rec.score * 100)}%</div>
-                      </div>
-                    </RecommendationCard>
-                  ))}
+                  {recommendations.map((rec) => {
+                    const event = rec.event || rec;
+
+                    return (
+                      <RecommendationCard
+                        key={event.id}
+                        onClick={() => navigate(`/events/${event.id}`)}
+                      >
+                        <div style={{ padding: '15px', color: '#fff' }}>
+                          <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>
+                            {event.name || event.title}
+                          </div>
+
+                          {event.date_begin && (
+                            <div style={{ fontSize: '12px', opacity: 0.85, marginBottom: '4px' }}>
+                              {new Date(event.date_begin).toLocaleString('ru-RU', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </div>
+                          )}
+
+                          <div style={{ fontSize: '12px', opacity: 0.85 }}>
+                            Совпадение: {Math.round((rec.score || 0) * 100)}%
+                          </div>
+
+                          {rec.explanation && (
+                            <div style={{ fontSize: '11px', opacity: 0.75, marginTop: '6px' }}>
+                              {rec.explanation}
+                            </div>
+                          )}
+                        </div>
+                      </RecommendationCard>
+                    );
+                  })}
                 </RecommendationsGrid>
               )}
               

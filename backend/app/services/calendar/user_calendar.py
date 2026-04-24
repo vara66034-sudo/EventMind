@@ -62,20 +62,28 @@ class UserCalendar:
     
     def is_available(self, event_date: datetime, duration_hours: int = 2) -> bool:
         """
-        Проверить, свободен ли пользователь в указанное время
-        
-        Args:
-            event_date: Дата и время события
-            duration_hours: Длительность события в часах
-        
-        Returns:
-            True если свободен, False если занят
+        Проверить, свободен ли пользователь в указанное время.
+        Все даты приводим к naive datetime, чтобы не ломалось сравнение.
         """
+
+        if event_date.tzinfo is not None:
+            event_date = event_date.replace(tzinfo=None)
+
         event_end = event_date + timedelta(hours=duration_hours)
-        
+
         for slot in self._busy_slots:
-            if not (event_date >= slot.end or event_end <= slot.start):
+            slot_start = slot.start
+            slot_end = slot.end
+
+            if slot_start and slot_start.tzinfo is not None:
+                slot_start = slot_start.replace(tzinfo=None)
+
+            if slot_end and slot_end.tzinfo is not None:
+                slot_end = slot_end.replace(tzinfo=None)
+
+            if not (event_date >= slot_end or event_end <= slot_start):
                 return False
+
         return True
     
     def find_free_slots(self, date: datetime, duration_hours: int = 2, 
