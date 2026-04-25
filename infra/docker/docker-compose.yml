@@ -33,6 +33,9 @@ services:
       dockerfile: infra/docker/Dockerfile
     environment:
       DATABASE_URL: postgresql://odoo:odoo@db:5432/postgres
+      VK_TOKEN: dfa1c6afdfa1c6afdfa1c6af8fdc9eafb9ddfa1dfa1c6afb619f2ab0e35e5a8b76e6915
+      SAVE_TO_DB: "true"
+      VK_PARSER_INTERVAL_MINUTES: "5"
     depends_on:
       - db
     container_name: teamEventMind2-backend

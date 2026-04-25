@@ -92,12 +92,14 @@ def get_user_email(user_id: int) -> Optional[str]:
 
 @app.on_event("startup")
 async def startup_event():
+    from .integrations.parsers.scheduler import start_vk_parser_scheduler
     from .schedule.models import SessionLocal
     from .schedule.services import start_scheduler
 
     start_scheduler(SessionLocal, get_user_email)
+    start_vk_parser_scheduler()
 
-    logger.info("Scheduler started successfully")
+    logger.info("Schedulers started successfully")
 
 
 frontend_build_dir = Path(__file__).resolve().parents[2] / "frontend" / "build"
