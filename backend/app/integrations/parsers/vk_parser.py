@@ -4,16 +4,55 @@ import re
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
-
+from gigachat import GigaChat
 import joblib
 import psycopg2
 import requests
 from dotenv import load_dotenv
 
+
+def extract_event_data_with_llm(text: str, post_date_ts: int) -> dict:
+    post_dt = datetime.fromtimestamp(post_date_ts)
+
+    system_prompt = f"""Ты — AI-ассистент. Твоя задача: извлечь данные о мероприятии из текста.
+    Ответь СТРОГО в формате JSON. Не пиши никаких вводных или поясняющих слов.
+    Дата публикации поста: {post_dt.strftime('%Y-%m-%d')}.
+
+    Формат JSON:
+    {{
+        "title": "Короткое название (без дат, без мусора, максимум 60 символов. Если нет - null)",
+        "event_date": "Дата в ISO 8601 (YYYY-MM-DDTHH:MM:00). Если точного времени нет - 00:00:00. Если даты нет - null",
+        "place": "Адрес или название площадки (например 'ГУК УрФУ'). Если онлайн, пиши 'Онлайн'. Если нет - null",
+        "is_online": true или false
+    }}
+    """
+
+    try:
+        with GigaChat(credentials=os.getenv("GIGACHAT_CREDENTIALS"), verify_ssl_certs=False) as giga:
+            response = giga.chat({
+                "model": "GigaChat",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": text[:3000]}
+                ],
+                "temperature": 0.1
+            })
+
+            response_text = response.choices[0].message.content
+
+            response_text = response_text.strip().strip("`").removeprefix("json").strip()
+
+            result = json.loads(response_text)
+            return result
+
+    except Exception as e:
+        print(f"Ошибка при обращении к GigaChat: {e}")
+        return {"title": None, "event_date": None, "place": None, "is_online": False}
+
 load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join("backend", "ml", "artifacts", "event_classifier.joblib")
+MODEL_PATH = os.path.join("ml", "artifacts", "event_classifier.joblib")
 
 VK_TOKEN = os.getenv("VK_TOKEN")
 VK_API_VERSION = "5.199"
@@ -26,14 +65,9 @@ ML_THRESHOLD = 0.62
 
 COMMUNITIES = [
     "event162254678",
-    "stokrat_ekb",
-    "analysts_mitap",
     "inachehackrussia",
     "event26276043",
-    "aiesec_ekaterinburg",
     "posnews",
-    "gamedevekb",
-    "ussc_group",
     "naumenjavameetup",
     "irit_rtf_urfu",
 ]
@@ -624,51 +658,40 @@ def build_event(post: Dict[str, Any], group: Dict[str, Any]) -> Optional[Dict[st
     raw_text = post.get("text", "") or ""
     text = clean_multiline_text(raw_text)
 
-    if not text or len(text) < 20:
+    if not text or len(text) < 20 or has_bad_content(text):
         return None
 
-    if has_bad_content(text):
-        return None
-
-    rule_pred = looks_like_event(text)
     ml_pred = ml_is_event(text, threshold=ML_THRESHOLD)
-
-    if not (rule_pred or ml_pred):
+    if not ml_pred:
         return None
 
-    event_date = parse_event_datetime(text, post.get("date", 0))
+    llm_data = extract_event_data_with_llm(text, post.get("date", 0))
+
+    event_date = llm_data.get("event_date")
+
     if not is_future_event(event_date):
-        return None
-
-    title = extract_title(text, group.get("name", ""))
-    place = extract_place(text)
-    parent_event = detect_parent_event(text, group.get("name", ""))
-
-
-    low = text.lower()
-    if "реклама." in low or "erid:" in low or "инн:" in low:
         return None
 
     post_id = post["id"]
     owner_id = post["owner_id"]
+    parent_event = detect_parent_event(text, group.get("name", ""))
 
     return {
         "source": "vk",
         "group_domain": group.get("screen_name"),
         "group_name": group.get("name"),
-        "title": title,
+        "title": llm_data.get("title") or "Без названия",
         "event_date": event_date,
         "description": text[:3000],
-        "place": place,
+        "place": llm_data.get("place"),
+        "is_online": llm_data.get("is_online", False),
         "parent_event": parent_event,
         "source_url": f"https://vk.com/wall{owner_id}_{post_id}",
         "image_url": choose_best_photo_url(post.get("attachments", [])),
         "raw_description": text,
         "post_published_at": datetime.fromtimestamp(post["date"]).isoformat(),
-        "ml_used": MODEL is not None,
-        "ml_threshold": ML_THRESHOLD,
+        "ml_used": True,
     }
-
 
 def get_db_connection():
     database_url = os.getenv("DATABASE_URL")
