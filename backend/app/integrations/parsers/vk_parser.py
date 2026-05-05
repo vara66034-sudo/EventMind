@@ -52,7 +52,7 @@ def extract_event_data_with_llm(text: str, post_date_ts: int) -> dict:
 load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join("ml", "artifacts", "event_classifier.joblib")
+MODEL_PATH = os.path.join("backend", "ml", "artifacts", "event_classifier.joblib")
 
 VK_TOKEN = os.getenv("VK_TOKEN")
 VK_API_VERSION = "5.199"
@@ -749,6 +749,28 @@ def save_events_to_db(events: List[Dict[str, Any]]) -> None:
         conn.close()
 
 
+def clean_old_events() -> None:
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("DELETE FROM events WHERE event_date < CURRENT_DATE")
+        deleted_count = cur.rowcount
+        conn.commit()
+
+        if deleted_count > 0:
+            print(f"Удалено неактуальных событий из БД: {deleted_count}")
+        else:
+            print("Нет прошедших событий для удаления.")
+
+    except Exception as e:
+        conn.rollback()
+        print("Ошибка при удалении старых событий:")
+        print(e)
+    finally:
+        cur.close()
+        conn.close()
+
 def main() -> None:
     if not VK_TOKEN:
         raise RuntimeError("Добавь VK_TOKEN в .env")
@@ -792,6 +814,7 @@ def main() -> None:
 
     if SAVE_TO_DB:
         save_events_to_db(all_events)
+        clean_old_events()
     else:
         print("Сохранение в PostgreSQL отключено")
 
