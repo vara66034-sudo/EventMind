@@ -34,13 +34,8 @@ jobs:
         env:
           VK_TOKEN: ${{ secrets.VK_TOKEN }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GIGACHAT_CREDENTIALS: ${{ secrets.GIGACHAT_CREDENTIALS }}
           SAVE_TO_DB: "true"
         run: |
           python backend/app/integrations/parsers/vk_parser.py
 
-     # - name: Run TimePad parser
-     #   env:
-     #     TIMEPAD_TOKEN: ${{ secrets.TIMEPAD_TOKEN }}
-     #     DATABASE_URL: ${{ secrets.DATABASE_URL }}
-     #   run: |
-     #     python backend/app/integrations/parsers/timepad_parser.py
