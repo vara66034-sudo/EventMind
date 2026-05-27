@@ -24,12 +24,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Добавлена библиотека telethon для Telegram-парсера
-          pip install pandas scikit-learn joblib psycopg2-binary python-dotenv requests gigachat telethon
-
-      - name: Check model file exists
-        run: |
-          test -f backend/ml/artifacts/event_classifier.joblib
+          # Убрали scikit-learn и joblib, оставили только самые нужные пакеты
+          pip install pandas psycopg2-binary python-dotenv requests gigachat telethon
 
       - name: Run VK parser
         env:
@@ -47,13 +43,10 @@ jobs:
           TG_SESSION: ${{ secrets.TG_SESSION }}
           GIGACHAT_CREDENTIALS: ${{ secrets.GIGACHAT_CREDENTIALS }}
         run: |
-          # ВНИМАНИЕ: Проверьте, что путь к файлу указан верно для вашей структуры проекта
           python backend/app/integrations/parsers/telegram_parser.py
 
       - name: Upload Telegram events to DB
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          # ВНИМАНИЕ: Проверьте, что путь к файлу загрузчика указан верно
           python backend/app/integrations/parsers/db_uploader.py
-
