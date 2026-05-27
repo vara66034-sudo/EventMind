@@ -55,10 +55,10 @@ def has_bad_content(text: str) -> bool:
 def extract_event_data_with_llm(text: str, post_date_ts: int) -> dict:
     post_dt = datetime.fromtimestamp(post_date_ts)
 
-    # Промпт унифицирован с telegram_parser.py
+    # ОБНОВЛЕННЫЙ ПРОМПТ: Умная работа с годами
     system_prompt = f"""Проанализируй текст и извлеки информацию о мероприятии. 
-    ВНИМАНИЕ: Текущий год — 2026. Если год не указан явно, обязательно используй 2026.
-    Дата публикации поста: {post_dt.strftime('%Y-%m-%d')}.
+    Дата публикации поста: {post_dt.strftime('%Y-%m-%d')}. Текущий год — 2026.
+    ПРАВИЛО ГОДА: Если год мероприятия не указан в тексте явно, обязательно используй год из "Даты публикации поста". НЕ ставь 2026 год для прошлогодних постов.
     Верни СТРОГО один JSON объект (не массив). Без markdown, без лишних слов.
     1. "title": Короткое название мероприятия (Если новость или мусор - null).
     2. "event_date": Дата ISO 8601 (например "2026-06-15T19:00:00"). Если даты нет - null.
@@ -70,7 +70,7 @@ def extract_event_data_with_llm(text: str, post_date_ts: int) -> dict:
     try:
         with GigaChat(credentials=os.getenv("GIGACHAT_CREDENTIALS"), verify_ssl_certs=False) as giga:
             response = giga.chat({
-                "model": "GigaChat-Max", # Используем вашу оплаченную умную модель
+                "model": "GigaChat-Max",
                 "messages": [
                     {"role": "user", "content": system_prompt}
                 ],
@@ -82,11 +82,16 @@ def extract_event_data_with_llm(text: str, post_date_ts: int) -> dict:
             
             parsed_json = json.loads(response_text)
             
-            # Защита от списков
             if isinstance(parsed_json, list):
                 if len(parsed_json) > 0:
                     return parsed_json[0]
                 return {}
+                
+            return parsed_json
+
+    except Exception as e:
+        print(f"Ошибка при обращении к GigaChat: {e}")
+        return {}
                 
             return parsed_json
 
@@ -167,14 +172,18 @@ def build_event(post: Dict[str, Any], group: Dict[str, Any]) -> Optional[Dict[st
     if post.get("marked_as_ads") == 1:
         return None
 
+    # ИСПРАВЛЕНИЕ: Жестко отсекаем старые посты ДО нейросети (старше 60 дней)
+    post_date_ts = post.get("date", 0)
+    post_dt = datetime.fromtimestamp(post_date_ts)
+    if post_dt < datetime.now() - timedelta(days=60):
+        return None
+
     text = clean_multiline_text(post.get("text", ""))
     
-    # Легкий фильтр перед отправкой в GigaChat
     if not text or len(text) < 20 or has_bad_content(text):
         return None
 
-    # Вся магия извлечения теперь здесь
-    llm_data = extract_event_data_with_llm(text, post.get("date", 0))
+    llm_data = extract_event_data_with_llm(text, post_date_ts)
 
     if not llm_data or not llm_data.get("title") or not llm_data.get("event_date"):
         return None
@@ -198,7 +207,7 @@ def build_event(post: Dict[str, Any], group: Dict[str, Any]) -> Optional[Dict[st
         "source_url": f"https://vk.com/wall{owner_id}_{post_id}",
         "image_url": choose_best_photo_url(post.get("attachments", [])),
         "raw_description": text,
-        "post_published_at": datetime.fromtimestamp(post["date"]).isoformat()
+        "post_published_at": post_dt.isoformat()
     }
 
 def get_db_connection():
