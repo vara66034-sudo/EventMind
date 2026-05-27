@@ -27,7 +27,7 @@ os.makedirs("images", exist_ok=True)
 CHANNEL_IT_ONLINE = 'iteventsjuniors'
 CHANNELS_GENERAL = [
     'choiceekb', 'ekbnash', 'davaicxodim_ekb', 
-    'veermallekb', 'bceekb', -1001234567890
+    'veermallekb', 'bceekb', -1001825257931
 ]
 
 def get_gigachat_token():
