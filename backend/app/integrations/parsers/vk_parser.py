@@ -92,12 +92,6 @@ def extract_event_data_with_llm(text: str, post_date_ts: int) -> dict:
     except Exception as e:
         print(f"Ошибка при обращении к GigaChat: {e}")
         return {}
-                
-            return parsed_json
-
-    except Exception as e:
-        print(f"Ошибка при обращении к GigaChat: {e}")
-        return {}
 
 def is_future_event(date_str) -> bool:
     if not date_str or not isinstance(date_str, str): 
