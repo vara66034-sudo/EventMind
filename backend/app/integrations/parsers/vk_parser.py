@@ -222,19 +222,20 @@ def save_events_to_db(events: List[Dict[str, Any]]) -> None:
             cur.execute("""
                 INSERT INTO events (
                     title, event_date, description, location, 
-                    source, source_url, image_url, raw_description
+                    source, source_url, image_url, raw_description, is_online
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (source_url) DO NOTHING
             """, (
                 event["title"][:255],
                 event["event_date"],
-                event["description"][:5000] if event["description"] else None,
-                event["location"][:255] if event["location"] else None,
+                event["description"][:5000] if event.get("description") else None,
+                event["location"][:255] if event.get("location") else None,
                 event["source"],
                 event["source_url"],
-                event["image_url"],
-                event["raw_description"][:10000] if event["raw_description"] else None,
+                event.get("image_url"),
+                event["raw_description"][:10000] if event.get("raw_description") else None,
+                event.get("is_online", False)  # <--- Добавили наше поле онлайн-статуса
             ))
             saved_count += 1
         conn.commit()
@@ -245,7 +246,7 @@ def save_events_to_db(events: List[Dict[str, Any]]) -> None:
     finally:
         cur.close()
         conn.close()
-
+        
 def clean_old_events() -> None:
     conn = get_db_connection()
     cur = conn.cursor()
