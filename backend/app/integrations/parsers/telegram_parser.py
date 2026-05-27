@@ -27,7 +27,7 @@ os.makedirs("images", exist_ok=True)
 CHANNEL_IT_ONLINE = 'iteventsjuniors'
 CHANNELS_GENERAL = [
     'choiceekb', 'ekbnash', 'davaicxodim_ekb', 
-    'veermallekb', 'bceekb'
+    'veermallekb', 'bceekb', -1001234567890
 ]
 
 def get_gigachat_token():
@@ -84,13 +84,19 @@ def is_future_event(date_str) -> bool:
 async def fetch_telegram_posts():
     client = TelegramClient(StringSession(TG_SESSION), API_ID, API_HASH)
     await client.connect()
+    
+    # === ВАЖНОЕ ДОБАВЛЕНИЕ ===
+    # Скачиваем список ваших диалогов, чтобы Telethon "узнал" закрытый канал по ID
+    print("Синхронизация списка диалогов (нужно для закрытых каналов)...")
+    await client.get_dialogs()
+    # =========================
+    
     it_posts, general_posts = [], []
     
     print(f"Читаем IT-канал: @{CHANNEL_IT_ONLINE}...")
     try:
         async for message in client.iter_messages(CHANNEL_IT_ONLINE, limit=50):
             if message.text:
-                # Скачиваем картинку
                 image_path = None
                 if message.photo:
                     image_path = await client.download_media(message.photo, file=f"images/{CHANNEL_IT_ONLINE}_{message.id}.jpg")
@@ -105,21 +111,30 @@ async def fetch_telegram_posts():
     for channel in CHANNELS_GENERAL:
         print(f"Читаем канал: {channel}...")
         try:
-            entity = channel.split('+')[-1] if '+' in channel else channel
+            # Умная проверка: текст чистим, а числовой ID передаем как есть
+            if isinstance(channel, str):
+                entity = channel.split('+')[-1] if '+' in channel else channel
+                clean_channel_name = channel.replace("https://t.me/+", "private_")
+            else:
+                entity = channel # Это наш скрытый числовой ID
+                clean_channel_name = f"private_{abs(channel)}"
+                
             async for message in client.iter_messages(entity, limit=30):
                 if message.text:
-                    # Скачиваем картинку
                     image_path = None
                     if message.photo:
-                        clean_channel_name = channel.replace("https://t.me/+", "private_")
                         image_path = await client.download_media(message.photo, file=f"images/{clean_channel_name}_{message.id}.jpg")
 
+                    # Если это закрытый канал, генерируем правильную ссылку для БД
+                    source_url = f"https://t.me/c/{str(abs(channel))[3:]}/{message.id}" if isinstance(channel, int) else f"t.me/{channel}/{message.id}"
+
                     general_posts.append({
-                        "source": f"t.me/{channel}/{message.id}", 
+                        "source": source_url, 
                         "text": message.text,
                         "image_url": image_path
                     })
         except Exception as e: print(f"⚠️ Ошибка {channel}: {e}")
+        
     await client.disconnect()
     return it_posts, general_posts
 
