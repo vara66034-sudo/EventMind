@@ -77,9 +77,9 @@ def save_events_to_db(events: List[Dict[str, Any]]) -> None:
             cur.execute("""
                 INSERT INTO events (
                     title, event_date, description, location, 
-                    source, source_url, image_url, raw_description
+                    source, source_url, image_url, raw_description, is_online
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (source_url) DO NOTHING
             """, (
                 event["title"][:255],
@@ -90,6 +90,7 @@ def save_events_to_db(events: List[Dict[str, Any]]) -> None:
                 event["source_url"],
                 event.get("image_url"),
                 event["raw_description"][:10000] if event.get("raw_description") else None,
+                event.get("is_online", False)  # <--- Добавили наше поле онлайн-статуса
             ))
             saved_count += 1
         conn.commit()
