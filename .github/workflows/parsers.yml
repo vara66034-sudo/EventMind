@@ -24,8 +24,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # Убрали scikit-learn и joblib, оставили только самые нужные пакеты
-          pip install pandas psycopg2-binary python-dotenv requests gigachat telethon
+          # Добавили beautifulsoup4 для парсера УрФУ
+          pip install pandas psycopg2-binary python-dotenv requests gigachat telethon beautifulsoup4
 
       - name: Run VK parser
         env:
@@ -50,3 +50,12 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           python backend/app/integrations/parsers/db_uploader.py
+
+      - name: Run UrFU parser
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GIGACHAT_CREDENTIALS: ${{ secrets.GIGACHAT_CREDENTIALS }}
+          SAVE_TO_DB: "true"
+        run: |
+          # ВНИМАНИЕ: Проверьте, что путь к файлу указан верно
+          python backend/app/integrations/parsers/urfu_parser.py
