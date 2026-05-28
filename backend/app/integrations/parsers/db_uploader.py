@@ -48,6 +48,12 @@ def upload_to_neon():
         
         print("🎉 Успешно! Данные из Телеграма загружены в облако Neon.")
 
+        cursor.execute("DELETE FROM events WHERE event_date < CURRENT_DATE;")
+        deleted_count = cursor.rowcount
+        conn.commit()
+        if deleted_count > 0:
+            print(f"🧹 Удалено прошедших событий из БД: {deleted_count}")
+
     except Exception as e:
         print(f"⚠️ Ошибка при работе с базой данных: {e}")
     finally:
