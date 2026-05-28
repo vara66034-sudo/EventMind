@@ -16,7 +16,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 GIGACHAT_CREDENTIALS = os.getenv("GIGACHAT_CREDENTIALS")
 SAVE_TO_DB = os.getenv("SAVE_TO_DB", "false").lower() == "true"
 
-def extract_event_data_with_llm(text: str) -> dict:
+def extract_event_data_with_llm(text: str, max_retries=3) -> dict:
     system_prompt = f"""Проанализируй текст и извлеки информацию о мероприятии. 
     ВНИМАНИЕ: Текущий год — 2026. Если год не указан явно, используй 2026.
     Верни СТРОГО один JSON объект (не массив). Без markdown, без лишних слов.
@@ -27,28 +27,36 @@ def extract_event_data_with_llm(text: str) -> dict:
     5. "description": Краткое описание мероприятия (о чем оно, главные детали).
     Текст: {text[:3000]}"""
 
-    try:
-        with GigaChat(credentials=GIGACHAT_CREDENTIALS, verify_ssl_certs=False) as giga:
-            response = giga.chat({
-                "model": "GigaChat-Max",
-                "messages": [
-                    {"role": "user", "content": system_prompt}
-                ],
-                "temperature": 0.1
-            })
+    # Добавляем цикл из 3 попыток на случай зависания серверов Сбера
+    for attempt in range(max_retries):
+        try:
+            # Увеличиваем таймаут ожидания ответа
+            with GigaChat(credentials=GIGACHAT_CREDENTIALS, verify_ssl_certs=False, timeout=60) as giga:
+                response = giga.chat({
+                    "model": "GigaChat-Max",
+                    "messages": [
+                        {"role": "user", "content": system_prompt}
+                    ],
+                    "temperature": 0.1
+                })
 
-            response_text = response.choices[0].message.content.strip().strip("`").removeprefix("json").strip()
-            parsed_json = json.loads(response_text)
-            
-            if isinstance(parsed_json, list):
-                if len(parsed_json) > 0:
-                    return parsed_json[0]
-                return {}
+                response_text = response.choices[0].message.content.strip().strip("`").removeprefix("json").strip()
+                parsed_json = json.loads(response_text)
                 
-            return parsed_json
-    except Exception as e:
-        print(f"Ошибка при обращении к GigaChat: {e}")
-        return {}
+                if isinstance(parsed_json, list):
+                    if len(parsed_json) > 0:
+                        return parsed_json[0]
+                    return {}
+                    
+                return parsed_json
+                
+        except Exception as e:
+            print(f"  ⚠️ Ошибка GigaChat (попытка {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(3) # Ждем 3 секунды перед новой попыткой
+            else:
+                print("  ❌ GigaChat не ответил после всех попыток. Пропускаем.")
+                return {}
 
 def is_future_event(date_str) -> bool:
     if not date_str or not isinstance(date_str, str): 
