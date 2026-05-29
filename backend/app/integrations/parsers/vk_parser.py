@@ -17,8 +17,10 @@ VK_TOKEN = os.getenv("VK_TOKEN")
 VK_API_VERSION = "5.199"
 VK_API_BASE = "https://api.vk.com/method"
 
+# ЖЕСТКО ОТКЛЮЧИЛИ БАЗУ ДАННЫХ ДЛЯ ПРОВЕРКИ
 SAVE_TO_DB = os.getenv("SAVE_TO_DB", "false").lower() == "true"
-POSTS_PER_GROUP = 50  # Уменьшил до 50, так как GigaChat делает качественный анализ
+
+POSTS_PER_GROUP = 50
 SLEEP_BETWEEN_REQUESTS = 0.35
 
 COMMUNITIES = [
@@ -30,12 +32,13 @@ COMMUNITIES = [
     "irit_rtf_urfu",
 ]
 
-# Базовый стоп-лист, чтобы не тратить токены GigaChat на явный мусор
+# Базовый стоп-лист (экономим токены на очевидном мусоре)
 BAD_CONTENT_MARKERS = [
-    "розыгрыш", "разыгрыш", "пиццы", "вакансия", "вакансии", 
-    "стажировка", "стажировки", "трудоустройство", "ищем", "ищет", 
+    "розыгрыш", "разыгрыш", "пиццы", "вакансия", "вакансии",
+    "стажировка", "стажировки", "трудоустройство", "ищем", "ищет",
     "итоги", "подводим итоги", "фотоотчет", "отзывы", "завершился"
 ]
+
 
 def clean_multiline_text(text: str) -> str:
     if not text:
@@ -48,60 +51,74 @@ def clean_multiline_text(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
+
 def has_bad_content(text: str) -> bool:
     low = text.lower()
     return any(marker in low for marker in BAD_CONTENT_MARKERS)
 
-def extract_event_data_with_llm(text: str, post_date_ts: int) -> dict:
+
+def extract_event_data_with_llm(text: str, post_date_ts: int, max_retries=3) -> dict:
     post_dt = datetime.fromtimestamp(post_date_ts)
 
-    # ОБНОВЛЕННЫЙ ПРОМПТ: Умная работа с годами
+    # ОБНОВЛЕННЫЙ ПРОМПТ: Добавлен жесткий фильтр по тематике и ГЕОГРАФИИ
     system_prompt = f"""Проанализируй текст и извлеки информацию о мероприятии. 
     Дата публикации поста: {post_dt.strftime('%Y-%m-%d')}. Текущий год — 2026.
-    ПРАВИЛО ГОДА: Если год мероприятия не указан в тексте явно, обязательно используй год из "Даты публикации поста". НЕ ставь 2026 год для прошлогодних постов.
+
+    ПРАВИЛО ТЕМАТИКИ: Нам нужны ТОЛЬКО IT-мероприятия (программирование, технологии, дизайн, хакатоны) ИЛИ студенческие мероприятия (вузовские форумы, молодежные активности, наука).
+
+    ПРАВИЛО ГЕОГРАФИИ (ВАЖНО): Мероприятие должно проходить СТРОГО в Екатеринбурге (или Свердловской области) ИЛИ быть в формате "Онлайн". Если в тексте явно указан другой город (например, Москва, Санкт-Петербург, Казань, Сочи) — верни пустой JSON {{}} или "title": null.
+
+    ПРАВИЛО ГОДА: Если год не указан явно, используй год из "Даты публикации поста". НЕ ставь 2026 год для прошлогодних постов.
+
     Верни СТРОГО один JSON объект (не массив). Без markdown, без лишних слов.
-    1. "title": Короткое название мероприятия (Если новость или мусор - null).
+    1. "title": Короткое название мероприятия (Если не подходит под правила - null).
     2. "event_date": Дата ISO 8601 (например "2026-06-15T19:00:00"). Если даты нет - null.
     3. "location": Место проведения. Если онлайн - "Онлайн".
     4. "is_online": true или false.
     5. "description": Краткое описание мероприятия (о чем оно, главные детали).
     Текст: {text[:3000]}"""
 
-    try:
-        with GigaChat(credentials=os.getenv("GIGACHAT_CREDENTIALS"), verify_ssl_certs=False) as giga:
-            response = giga.chat({
-                "model": "GigaChat-Max",
-                "messages": [
-                    {"role": "user", "content": system_prompt}
-                ],
-                "temperature": 0.1
-            })
+    for attempt in range(max_retries):
+        try:
+            with GigaChat(credentials=os.getenv("GIGACHAT_CREDENTIALS"), verify_ssl_certs=False, timeout=60) as giga:
+                response = giga.chat({
+                    "model": "GigaChat-Max",
+                    "messages": [
+                        {"role": "user", "content": system_prompt}
+                    ],
+                    "temperature": 0.1
+                })
 
-            response_text = response.choices[0].message.content
-            response_text = response_text.strip().strip("`").removeprefix("json").strip()
-            
-            parsed_json = json.loads(response_text)
-            
-            if isinstance(parsed_json, list):
-                if len(parsed_json) > 0:
-                    return parsed_json[0]
+                response_text = response.choices[0].message.content
+                response_text = response_text.strip().strip("`").removeprefix("json").strip()
+
+                parsed_json = json.loads(response_text)
+
+                if isinstance(parsed_json, list):
+                    if len(parsed_json) > 0:
+                        return parsed_json[0]
+                    return {}
+
+                return parsed_json
+
+        except Exception as e:
+            print(f"  ⚠️ Ошибка GigaChat (попытка {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(3)
+            else:
                 return {}
-                
-            return parsed_json
 
-    except Exception as e:
-        print(f"Ошибка при обращении к GigaChat: {e}")
-        return {}
 
 def is_future_event(date_str) -> bool:
-    if not date_str or not isinstance(date_str, str): 
+    if not date_str or not isinstance(date_str, str):
         return False
     try:
         clean_date = date_str.strip()
         event_date = datetime.fromisoformat(clean_date)
         return event_date > datetime.now(event_date.tzinfo)
-    except ValueError: 
+    except ValueError:
         return False
+
 
 def vk_api_call(method: str, params: Dict[str, Any]) -> Dict[str, Any]:
     if not VK_TOKEN:
@@ -117,6 +134,7 @@ def vk_api_call(method: str, params: Dict[str, Any]) -> Dict[str, Any]:
     time.sleep(SLEEP_BETWEEN_REQUESTS)
     return data["response"]
 
+
 def get_group_info(domain: str) -> Dict[str, Any]:
     response = vk_api_call("groups.getById", {"group_ids": domain, "fields": "screen_name,name,description"})
     if isinstance(response, list): return response[0]
@@ -125,9 +143,11 @@ def get_group_info(domain: str) -> Dict[str, Any]:
         if "response" in response and response["response"]: return response["response"][0]
     raise RuntimeError(f"Не удалось получить данные группы {domain}: {response}")
 
+
 def get_wall_posts(domain: str, limit: int = POSTS_PER_GROUP) -> List[Dict[str, Any]]:
     response = vk_api_call("wall.get", {"domain": domain, "count": limit, "filter": "owner"})
     return response.get("items", [])
+
 
 def choose_best_photo_url(attachments: List[Dict[str, Any]]) -> Optional[str]:
     best_url = None
@@ -145,6 +165,7 @@ def choose_best_photo_url(attachments: List[Dict[str, Any]]) -> Optional[str]:
                 best_url = url
     return best_url
 
+
 def detect_parent_event(text: str, group_name: str = "") -> Optional[str]:
     low = text.lower()
     group_low = (group_name or "").lower()
@@ -154,6 +175,7 @@ def detect_parent_event(text: str, group_name: str = "") -> Optional[str]:
     if "young&&yandex" in low or "young con" in low or "баттл вузов" in low: return "young_yandex_battle"
     return None
 
+
 def build_dedupe_key(event: Dict[str, Any]) -> str:
     parent_event = event.get("parent_event")
     if parent_event:
@@ -162,18 +184,18 @@ def build_dedupe_key(event: Dict[str, Any]) -> str:
     date_key = str(event.get("event_date", ""))[:10]
     return f"{title_key}_{date_key}"
 
+
 def build_event(post: Dict[str, Any], group: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if post.get("marked_as_ads") == 1:
         return None
 
-    # ИСПРАВЛЕНИЕ: Жестко отсекаем старые посты ДО нейросети (старше 60 дней)
     post_date_ts = post.get("date", 0)
     post_dt = datetime.fromtimestamp(post_date_ts)
     if post_dt < datetime.now() - timedelta(days=60):
         return None
 
     text = clean_multiline_text(post.get("text", ""))
-    
+
     if not text or len(text) < 20 or has_bad_content(text):
         return None
 
@@ -185,9 +207,21 @@ def build_event(post: Dict[str, Any], group: Dict[str, Any]) -> Optional[Dict[st
     if not is_future_event(llm_data.get("event_date")):
         return None
 
+    # === ПРОГРАММНЫЙ ЩИТ ОТ ЧУЖИХ ГОРОДОВ ===
+    location_text = llm_data.get("location", "").lower()
+    is_online = llm_data.get("is_online", False)
+
+    # Если мероприятие офлайн, проверяем, нет ли в локации названий крупных чужих городов
+    if not is_online:
+        stop_cities = ["москва", "санкт-петербург", "спб", "питер", "казань", "сочи", "новосибирск", "нижний новгород",
+                       "москве"]
+        if any(city in location_text for city in stop_cities):
+            print(f"  ❌ ОТКЛОНЕНО (Чужой город): {llm_data['title']} -> {llm_data.get('location')}")
+            return None
+
     post_id = post["id"]
     owner_id = post["owner_id"]
-    
+
     return {
         "source": "vk",
         "group_domain": group.get("screen_name"),
@@ -196,7 +230,7 @@ def build_event(post: Dict[str, Any], group: Dict[str, Any]) -> Optional[Dict[st
         "event_date": llm_data["event_date"].strip(),
         "description": llm_data.get("description", ""),
         "location": llm_data.get("location", "Не указано"),
-        "is_online": llm_data.get("is_online", False),
+        "is_online": is_online,
         "parent_event": detect_parent_event(text, group.get("name", "")),
         "source_url": f"https://vk.com/wall{owner_id}_{post_id}",
         "image_url": choose_best_photo_url(post.get("attachments", [])),
@@ -204,11 +238,13 @@ def build_event(post: Dict[str, Any], group: Dict[str, Any]) -> Optional[Dict[st
         "post_published_at": post_dt.isoformat()
     }
 
+
 def get_db_connection():
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL не найден в .env")
     return psycopg2.connect(database_url)
+
 
 def save_events_to_db(events: List[Dict[str, Any]]) -> None:
     if not events:
@@ -235,7 +271,7 @@ def save_events_to_db(events: List[Dict[str, Any]]) -> None:
                 event["source_url"],
                 event.get("image_url"),
                 event["raw_description"][:10000] if event.get("raw_description") else None,
-                event.get("is_online", False)  # <--- Добавили наше поле онлайн-статуса
+                event.get("is_online", False)  # <-- Важно: передаем статус онлайна
             ))
             saved_count += 1
         conn.commit()
@@ -246,7 +282,7 @@ def save_events_to_db(events: List[Dict[str, Any]]) -> None:
     finally:
         cur.close()
         conn.close()
-        
+
 def clean_old_events() -> None:
     conn = get_db_connection()
     cur = conn.cursor()
@@ -262,6 +298,7 @@ def clean_old_events() -> None:
     finally:
         cur.close()
         conn.close()
+
 
 def main() -> None:
     if not VK_TOKEN:
@@ -305,11 +342,13 @@ def main() -> None:
     if SAVE_TO_DB:
         save_events_to_db(all_events)
         clean_old_events()
+        pass
     else:
-        print("Сохранение в PostgreSQL отключено (установите SAVE_TO_DB=true)")
+        print("\nВНИМАНИЕ: Сохранение в PostgreSQL сейчас отключено (режим проверки).")
 
-    print(f"\n🎉 Готово. Извлечено событий: {len(all_events)}")
-    print(f"Файл сохранен: {output_path}")
+    print(f"🎉 Готово. Извлечено целевых событий: {len(all_events)}")
+    print(f"Посмотрите результат в файле: {output_path}")
+
 
 if __name__ == "__main__":
     main()
