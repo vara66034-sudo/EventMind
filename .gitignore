@@ -28,3 +28,26 @@ Thumbs.db
 *.temp
 *.pyc
 *.db
+__pycache__/
+
+# Окружение
+venv/
+env/
+.venv/
+
+# Архивы и медиа
+*.zip
+*.mp4
+*.jpg
+*.png
+
+# Временные папки
+backup_*/
+temp_*/
+updated_project/
+
+# Временные скрипты и данные парсеров
+*.json
+check_db.py
+fix_constraints.py
+test_gigachat.py

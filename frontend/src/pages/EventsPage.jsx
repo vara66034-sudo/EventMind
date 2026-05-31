@@ -71,23 +71,6 @@ const ErrorMessage = styled.div`
   font-size: 18px;
 `;
 
-const getEventId = (event) => {
-  const rawId = event?.id ?? event?.event_id;
-  const id = Number(rawId);
-
-  return Number.isFinite(id) ? id : null;
-};
-
-const extractFavoritesList = (response) => {
-  if (Array.isArray(response)) return response;
-
-  if (response?.success && Array.isArray(response.data)) {
-    return response.data;
-  }
-
-  return [];
-};
-
 const EventsPage = () => {
   const [selectedCity, setSelectedCity] = useState(null);
   const [favoriteIds, setFavoriteIds] = useState(new Set());
@@ -103,37 +86,24 @@ const EventsPage = () => {
   
   const { events, loading, error, refetch } = useEvents(data);
 
-  const loadFavorites = useCallback(async () => {
-    if (!userId) {
-      setFavoriteIds(new Set());
-      return;
+  useEffect(() => {
+    if (userId) {
+      loadFavorites();
     }
+  }, [userId]);
 
+  const loadFavorites = async () => {
+    if (!userId) return;
     try {
       const response = await scheduleAPI.getFavorites(userId);
-
-      if (!Array.isArray(response) && response?.success === false) {
-        throw new Error(response.error || 'Не удалось загрузить избранное');
-      }
-
-      const favorites = extractFavoritesList(response);
-
-      const ids = new Set(
-        favorites
-          .map(getEventId)
-          .filter((id) => id !== null)
-      );
-
+      const data = Array.isArray(response) ? response : [];
+      const ids = new Set(data.map(event => event.id));
       setFavoriteIds(ids);
     } catch (err) {
       console.error('Error loading favorites:', err);
       setFavoriteIds(new Set());
     }
-  }, [userId]);
-
-  useEffect(() => {
-    loadFavorites();
-  }, [loadFavorites]);
+  };
 
   const handleCitySelect = (city) => {
     setSelectedCity(city === 'Все города' ? null : city);
@@ -150,45 +120,25 @@ const EventsPage = () => {
     }
   }, [refetch]);
 
-  const handleToggleFavorite = useCallback(async (clickedUserId, eventId, shouldBeFavorite) => {
-    const actualUserId = clickedUserId || userId;
-    const normalizedEventId = Number(eventId);
-
-    if (!actualUserId) {
-      alert('Войдите в аккаунт, чтобы добавить событие в избранное');
-      return;
-    }
-
-    if (!Number.isFinite(normalizedEventId)) {
-      alert('Некорректный ID события');
-      return;
-    }
-
+  const handleToggleFavorite = useCallback(async (userId, eventId, shouldBeFavorite) => {
+    if (!userId) return;
     try {
-      const response = shouldBeFavorite
-        ? await scheduleAPI.addToFavorites(actualUserId, normalizedEventId)
-        : await scheduleAPI.removeFromFavorites(actualUserId, normalizedEventId);
-
-      if (!response?.success) {
-        throw new Error(response?.error || 'Backend не сохранил избранное');
+      if (shouldBeFavorite) {
+        await scheduleAPI.addToFavorites(userId, eventId);
+        setFavoriteIds(prev => new Set(prev).add(eventId));
+      } else {
+        await scheduleAPI.removeFromFavorites(userId, eventId);
+        setFavoriteIds(prev => {
+          const next = new Set(prev);
+          next.delete(eventId);
+          return next;
+        });
       }
-
-      setFavoriteIds((prev) => {
-        const next = new Set(prev);
-
-        if (shouldBeFavorite) {
-          next.add(normalizedEventId);
-        } else {
-          next.delete(normalizedEventId);
-        }
-
-        return next;
-      });
     } catch (err) {
       console.error('Error toggling favorite:', err);
-      alert(err.message || 'Не удалось обновить избранное');
+      alert('Не удалось обновить избранное');
     }
-  }, [userId]);
+  }, []);
 
   if (loading) {
     return (
@@ -202,32 +152,103 @@ const EventsPage = () => {
     );
   }
 
-  // Удаляем mockEvents и оставляем только реальные события
-  const displayEvents = events || [];
+  const mockEvents = [
+    {
+      id: 1,
+      name: 'EventMind AI Hackathon 2026',
+      date_begin: '2026-05-20 10:00:00',
+      location: 'Екатеринбург, Технопарк',
+      image: 'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=800'
+    },
+    {
+      id: 4,
+      name: 'Python & Data Science Meetup',
+      date_begin: '2026-06-05 19:00:00',
+      location: 'Екатеринбург, Ельцин Центр',
+      image: 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=800'
+    },
+    {
+      id: 5,
+      name: 'Ural CyberSecurity Forum',
+      date_begin: '2026-07-10 09:00:00',
+      location: 'Екатеринбург-ЭКСПО',
+      image: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800'
+    }, 
+    {
+      id: 6,
+      name: 'EventMind AI Hackathon 2026',
+      date_begin: '2026-04-15 19:00:00',
+      location: 'Екатеринбург, Технопарк "Университетский"',
+      image: 'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=800',
+    },
+    {
+      id: 2,
+      name: 'Python & Data Science Meetup',
+      date_begin: '2026-04-20 14:00:00',
+      location: 'Екатеринбург, Ельцин Центр',
+      image: 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=800',
+    },
+    {
+      id: 7,
+      name: 'Ural CyberSecurity Forum 2026',
+      date_begin: '2026-05-01 10:00:00',
+      location: 'Екатеринбург-ЭКСПО',
+      image: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800',
+    },
+    {
+      id: 8,
+      name: 'Frontend Intensive: React & Next.js',
+      date_begin: '2026-04-18 20:00:00',
+      location: 'Онлайн (Zoom )',
+      image: 'https://images.unsplash.com/photo-1587620962725-abab7fe55159?w=800',
+    },
+    {
+      id: 9,
+      name: 'DevOps & Cloud Infrastructure Day',
+      date_begin: '2026-05-12 11:00:00',
+      location: 'Екатеринбург, БЦ "Высоцкий"',
+      image: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800',
+    },
+    {
+      id: 10,
+      name: 'GameDev Weekend: Unity & Unreal',
+      date_begin: '2026-05-25 12:00:00',
+      location: 'Екатеринбург, Коворкинг "Names"',
+      image: 'https://images.unsplash.com/photo-1552820728-8b83bb6b773f?w=800',
+    },
+    {
+      id: 11,
+      name: 'Mobile Conf: iOS & Android Trends',
+      date_begin: '2026-06-05 10:00:00',
+      location: 'Екатеринбург, Хаятт Ридженси',
+      image: 'https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?w=800',
+    },
+    {
+      id: 12,
+      name: 'Product Management Workshop',
+      date_begin: '2026-06-15 18:30:00',
+      location: 'Онлайн',
+      image: 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=800',
+    },
+  ];
+
+  const displayEvents = error || !events?.length ? mockEvents : events;
 
   return (
     <PageContainer>
       <EventsSection>
         <ContentWrapper>
           <EventsGrid>
-            {displayEvents.length > 0 ? (
-              displayEvents.map((event) => {
-                const eventId = getEventId(event);
-
-                return (
-                  <EventCard 
-                    key={eventId ?? event.id} 
-                    event={event}
-                    userId={userId}
-                    onAddToSchedule={handleAddToSchedule}
-                    onToggleFavorite={handleToggleFavorite}
-                    isFavorite={eventId !== null && favoriteIds.has(eventId)}
-                  />
-                );
-              })
-            ) : (
-              <ErrorMessage>События не найдены</ErrorMessage>
-            )}
+            {displayEvents.map((event) => (
+              <EventCard 
+                key={event.id} 
+                event={event}
+                userId={userId}
+                onAddToSchedule={handleAddToSchedule}
+                onToggleFavorite={handleToggleFavorite}
+                isFavorite={favoriteIds.has(event.id)}
+              />
+            ))}
           </EventsGrid>
         </ContentWrapper>
       </EventsSection>

@@ -153,25 +153,26 @@ const SelectInterestsPage = () => {
           interests: selectedTags,
         });
         
-        console.log('Registration response:', response);
         if (response && response.success && response.data) {
-          console.log('Setting auth with userId:', response.data.user_id);
           localStorage.setItem('auth', JSON.stringify({
             userId: response.data.user_id,
             token: response.data.token,
-            user: response.data,
+            email: response.data.email,
+            name: response.data.name
           }));
+          window.dispatchEvent(new Event('authChange'));
+          localStorage.removeItem('pendingRegistration');
+          navigate('/profile');
+        } else {
+          alert(response?.error || 'Ошибка регистрации');
         }
-        
-        localStorage.removeItem('pendingRegistration');
         
       } else if (userId) {
         await userAPI.updateProfile(userId, {
           interests: selectedTags,
         });
+        navigate('/profile');
       }
-      
-      navigate('/profile');
       
     } catch (error) {
       console.error('Error saving interests:', error);
@@ -193,22 +194,26 @@ const SelectInterestsPage = () => {
           password: userData.password,
           interests: [],
         });
-        
         if (response && response.success && response.data) {
           localStorage.setItem('auth', JSON.stringify({
             userId: response.data.user_id,
             token: response.data.token,
-            user: response.data,
+            email: response.data.email,
+            name: response.data.name
           }));
+          window.dispatchEvent(new Event('authChange'));
+          localStorage.removeItem('pendingRegistration');
+          navigate('/profile');
+        } else {
+          alert(response?.error || 'Ошибка регистрации');
         }
-        
-        localStorage.removeItem('pendingRegistration');
       } catch (error) {
         console.error('Error registering without interests:', error);
+        alert('Ошибка регистрации');
       }
+    } else {
+      navigate('/profile');
     }
-    
-    navigate('/profile');
   };
 
   return (

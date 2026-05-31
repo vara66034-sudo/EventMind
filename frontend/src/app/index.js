@@ -7,6 +7,7 @@ import EventDetailPage from '../pages/EventDetailPage';
 import ProfilePage from '../pages/ProfilePage';
 import LoginPage from '../pages/LoginPage';
 import RegisterPage from '../pages/RegisterPage';
+import VerifyEmailPage from '../pages/VerifyEmailPage';
 import SelectInterestsPage from '../pages/SelectInterestsPage';
 import EditProfilePage from '../pages/EditProfilePage';
 import '../styles/global.css';
@@ -33,6 +34,7 @@ function App() {
             {/* Авторизация */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/verify-email" element={<VerifyEmailPage />} />
             <Route path="/select-interests" element={<SelectInterestsPage />} />
           </Routes>
         </main>

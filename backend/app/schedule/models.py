@@ -118,6 +118,22 @@ class UserInteraction(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 
+class Event(Base):
+    __tablename__ = "events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    event_date = Column(DateTime, nullable=True)
+    description = Column(Text, nullable=True)
+    location = Column(String(255), nullable=True)
+    source = Column(String(100), nullable=True)
+    source_url = Column(String(500), unique=True, nullable=True)
+    image_url = Column(String(500), nullable=True)
+    raw_description = Column(Text, nullable=True)
+    tags = Column(String, nullable=True)  # Store as comma-separated string or JSON
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class SchedulePlatformCreate(BaseModel):
     event_id: int
 

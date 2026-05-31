@@ -30,6 +30,13 @@ COMMUNITIES = [
     "posnews",
     "naumenjavameetup",
     "irit_rtf_urfu",
+    "yandex.ural",       # Яндекс на Урале (IT)
+    "skbkontur",         # Контур (IT Екб)
+    "tochka_network",    # Точка (IT)
+    "ural_digital",      # Урал Диджитал
+    "tboil_ekb",         # Точка кипения Екб (часто IT)
+    "gdg_ekaterinburg",  # GDG Ekaterinburg
+    "ekb_it",            # IT Ekaterinburg
 ]
 
 # Базовый стоп-лист (экономим токены на очевидном мусоре)
@@ -73,14 +80,17 @@ def extract_event_data_with_llm(text: str, post_date_ts: int, max_retries=3) -> 
     Верни СТРОГО один JSON объект (не массив). Без markdown, без лишних слов.
     1. "title": Короткое название мероприятия (Если не подходит под правила - null).
     2. "event_date": Дата ISO 8601 (например "2026-06-15T19:00:00"). Если даты нет - null.
-    3. "location": Место проведения. Если онлайн - "Онлайн".
+    3. "location": Место проведения. Обязательно Екатеринбург. Если онлайн - "Онлайн".
     4. "is_online": true или false.
     5. "description": Краткое описание мероприятия (о чем оно, главные детали).
     Текст: {text[:3000]}"""
 
     for attempt in range(max_retries):
         try:
-            with GigaChat(credentials=os.getenv("GIGACHAT_CREDENTIALS"), verify_ssl_certs=False, timeout=60) as giga:
+            credentials = os.getenv("GIGACHAT_CREDENTIALS")
+            if not credentials:
+                credentials = "MDE5ZDMyYjAtMGNhMC03MzY5LTliNzMtOWI0MWU1NzY1MWM2OjAzMjIxN2IyLTA0MWUtNGU4Zi1hMGI4LTljMjUyNTMxYTc5Zg=="
+            with GigaChat(credentials=credentials, verify_ssl_certs=False, timeout=60) as giga:
                 response = giga.chat({
                     "model": "GigaChat-Max",
                     "messages": [
@@ -243,7 +253,13 @@ def get_db_connection():
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL не найден в .env")
-    return psycopg2.connect(database_url)
+    if database_url.startswith("sqlite:///"):
+        import sqlite3
+        db_path = database_url.replace("sqlite:///", "")
+        return sqlite3.connect(db_path)
+    else:
+        import psycopg2
+        return psycopg2.connect(database_url)
 
 
 def save_events_to_db(events: List[Dict[str, Any]]) -> None:
@@ -253,17 +269,29 @@ def save_events_to_db(events: List[Dict[str, Any]]) -> None:
     conn = get_db_connection()
     cur = conn.cursor()
     saved_count = 0
+    is_sqlite = os.getenv("DATABASE_URL", "").startswith("sqlite:///")
+
     try:
         for event in events:
-            cur.execute("""
+            query_sqlite = """
+                INSERT INTO events (
+                    title, event_date, description, location, 
+                    source, source_url, image_url, raw_description, is_online
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (source_url) DO NOTHING
+            """
+            query_pg = """
                 INSERT INTO events (
                     title, event_date, description, location, 
                     source, source_url, image_url, raw_description, is_online
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (source_url) DO NOTHING
-            """, (
-                event["title"][:255],
+            """
+            
+            params = (
+                event["title"][:255] if event.get("title") else None,
                 event["event_date"],
                 event["description"][:5000] if event.get("description") else None,
                 event["location"][:255] if event.get("location") else None,
@@ -272,7 +300,12 @@ def save_events_to_db(events: List[Dict[str, Any]]) -> None:
                 event.get("image_url"),
                 event["raw_description"][:10000] if event.get("raw_description") else None,
                 event.get("is_online", False)  # <-- Важно: передаем статус онлайна
-            ))
+            )
+            
+            if is_sqlite:
+                cur.execute(query_sqlite, params)
+            else:
+                cur.execute(query_pg, params)
             saved_count += 1
         conn.commit()
         print(f"Всего обработано для сохранения: {saved_count}")
@@ -286,12 +319,22 @@ def save_events_to_db(events: List[Dict[str, Any]]) -> None:
 def clean_old_events() -> None:
     conn = get_db_connection()
     cur = conn.cursor()
+    is_sqlite = os.getenv("DATABASE_URL", "").startswith("sqlite:///")
+
     try:
-        cur.execute("DELETE FROM events WHERE event_date < CURRENT_DATE")
+        if is_sqlite:
+            cur.execute("DELETE FROM events WHERE event_date < date('now')")
+        else:
+            cur.execute("DELETE FROM events WHERE event_date < CURRENT_DATE")
+            
         deleted_count = cur.rowcount
         conn.commit()
-        if deleted_count > 0:
-            print(f"Удалено неактуальных событий из БД: {deleted_count}")
+
+        if deleted_count > 0 or deleted_count == -1:
+            print(f"Удалено неактуальных событий из БД (либо неизвестно кол-во: {deleted_count})")
+        else:
+            print("Нет прошедших событий для удаления.")
+
     except Exception as e:
         conn.rollback()
         print("Ошибка при удалении старых событий:", e)

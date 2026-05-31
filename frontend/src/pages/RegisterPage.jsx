@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
+import { authAPI } from '../services/api';
 
 const PageContainer = styled.div`
   min-height: 100vh;
@@ -86,14 +87,10 @@ const RegisterPage = () => {
     setIsSubmitting(true);
     
     try {
-      localStorage.setItem('pendingRegistration', JSON.stringify({
-        name,
-        email,
-        password,
-      }));
+      localStorage.setItem('pendingRegistration', JSON.stringify({ name, email, password }));
       
-      navigate('/select-interests');
-      
+      // Пропускаем отправку кода и проверку email
+      navigate('/select-interests', { state: { email } });
     } catch (error) {
       console.error('Register error:', error);
       alert('Ошибка подготовки регистрации');

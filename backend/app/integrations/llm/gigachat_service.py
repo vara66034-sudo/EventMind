@@ -3,6 +3,7 @@ from gigachat import GigaChat
 from gigachat.models import Chat, Messages, MessagesRole
 from typing import List, Dict
 from datetime import datetime
+import os
 
 logger = logging.getLogger('EventMind.LLM')
 
@@ -77,15 +78,19 @@ class GigaChatService:
         # Системный промпт
         prompt = f"""
         Ты — умный и дружелюбный ИИ-ассистент по мероприятиям EventMind.
-        Твоя задача — порекомендовать пользователю события в формате личного сообщения. Я уже проверил его расписание, и эти события точно попадают в его свободное время!
+        Твоя задача — порекомендовать пользователю события. Я уже проверил его расписание, эти события точно подходят!
         
         Интересы пользователя: {interests_text}
         
         Список подходящих событий:
         {events_text}
         
-        Напиши короткое (до 3-4 абзацев), теплое сообщение. Скажи, что ты проанализировал его расписание и нашел отличные варианты. Кратко объясни, почему эти события ему понравятся, опираясь на его интересы. 
-        ВАЖНО: Не используй хештеги (#), markdown или спецсимволы. Пиши просто и человечно. Не выдумывай факты и даты.
+        Напиши ОДИН связный и красивый текст, в котором ты обращаешься к пользователю.
+        Текст должен быть примерно такого формата (но адаптируй его под реальные события и интересы):
+        "Тебе нравится [интересы], поэтому я рекомендую тебе [Название события 1]. Там будет то-то. А еще обрати внимание на [Название события 2] — там ты сможешь..."
+        
+        ВАЖНОЕ ПРАВИЛО ФОРМАТИРОВАНИЯ:
+        Не используй разделители вроде "|||". Просто напиши один связный и приятный текст-рекомендацию, который охватывает все предложенные события. Не используй Markdown заголовки.
         """
 
         try:
@@ -111,7 +116,9 @@ _llm_instance = None
 def get_llm_service() -> GigaChatService:
     global _llm_instance
     if _llm_instance is None:
-        # Используем ключ, предоставленный пользователем
-        credentials = "MDE5ZDMyYjAtMGNhMC03MzY5LTliNzMtOWI0MWU1NzY1MWM2OjAzMjIxN2IyLTA0MWUtNGU4Zi1hMGI4LTljMjUyNTMxYTc5Zg=="
+        # Используем ключ из .env или дефолтный
+        credentials = os.getenv("GIGACHAT_CREDENTIALS")
+        if not credentials:
+            credentials = "MDE5ZDMyYjAtMGNhMC03MzY5LTliNzMtOWI0MWU1NzY1MWM2OjAzMjIxN2IyLTA0MWUtNGU4Zi1hMGI4LTljMjUyNTMxYTc5Zg=="
         _llm_instance = GigaChatService(credentials=credentials)
     return _llm_instance

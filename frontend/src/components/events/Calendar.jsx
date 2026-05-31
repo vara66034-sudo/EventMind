@@ -165,9 +165,11 @@ const Calendar = () => {
     
     for (let i = 0; i < 7; i++) {
       const date = new Date(curr.getFullYear(), curr.getMonth(), firstDayOfWeek + i);
+      const pad = (n) => String(n).padStart(2, '0');
+      const localDateKey = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
       week.push({
-        day: firstDayOfWeek + i,
-        dateKey: date.toISOString().split('T')[0],
+        day: date.getDate(),
+        dateKey: localDateKey,
         fullDate: date
       });
     }

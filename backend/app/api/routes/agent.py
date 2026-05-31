@@ -14,7 +14,7 @@ load_dotenv()
 from ...services.agent.orchestrator import get_agent
 from ...services.recommendations.service import get_recommender
 from ...services.calendar.user_calendar import get_user_calendar, TimeSlot
-from ...schedule.models import SessionLocal, UserSchedule, UserInterest, User
+from ...schedule.models import SessionLocal, UserSchedule, UserInterest, User, Event, UserFavorite
 from ...schedule.services import (
     add_favorite,
     remove_favorite,
@@ -26,8 +26,11 @@ from ...schedule.services import (
 )
 from ...integrations.llm.gigachat_service import get_llm_service
 from ...integrations.calendar.ics_generator import get_ics_generator
+from datetime import timedelta
 
 logger = logging.getLogger('EventMind.API')
+
+verification_codes = {}
 
 
 class AgentAPI:
@@ -36,7 +39,7 @@ class AgentAPI:
         self.agent = get_agent()
         self.recommender = get_recommender()
         self._events_cache = {'timestamp': None, 'data': []}
-        logger.info("AgentAPI initialized (PostgreSQL mode)")
+        logger.info("AgentAPI initialized (SQLAlchemy mode)")
 
     def _sync_calendar(self, user_id: int):
         from datetime import timedelta
@@ -56,63 +59,47 @@ class AgentAPI:
     # -------------------- Вспомогательные методы --------------------
 
     def _fetch_events(self, date_from: datetime = None, date_to: datetime = None, force_refresh: bool = False) -> List[Dict]:
-        """Загружает события из PostgreSQL (с кэшированием)"""
+        """Загружает события из БД (с кэшированием)"""
         now = datetime.now()
         if not force_refresh and not date_from and not date_to:
             if self._events_cache['timestamp'] and (now - self._events_cache['timestamp']).total_seconds() < 300:
                 return self._events_cache['data']
         
-        database_url = os.getenv("DATABASE_URL")
-        logger.info(f"Fetching events from DB. URL present: {bool(database_url)}")
-        if not database_url:
-            logger.error("DATABASE_URL not found in environment")
-            return []
-
         try:
-            conn = psycopg2.connect(database_url)
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            
-            query = "SELECT * FROM events WHERE 1=1"
-            params = []
-            
-            if date_from:
-                query += " AND event_date >= %s"
-                params.append(date_from)
-            elif not date_to and not force_refresh:
-                # По умолчанию: только будущие события
-                query += " AND event_date >= %s"
-                params.append(now)
-            
-            if date_to:
-                query += " AND event_date <= %s"
-                params.append(date_to)
+            with SessionLocal() as db:
+                query = db.query(Event)
                 
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            
-            events = []
-            for row in rows:
-                events.append({
-                    'id': row['id'],
-                    'name': row['title'],
-                    'date_begin': row['event_date'].isoformat() if row['event_date'] else None,
-                    'date_end': None,
-                    'location': row['location'],
-                    'description': row['description'],
-                    'tags': row['tags'] or [],
-                    'image': row['image_url'],
-                    'source': row['source'],
-                    'source_url': row['source_url']
-                })
+                if date_from:
+                    query = query.filter(Event.event_date >= date_from)
+                elif not date_to and not force_refresh:
+                    # По умолчанию: только будущие события
+                    query = query.filter(Event.event_date >= now)
                 
-            cur.close()
-            conn.close()
-            
-            if not date_from and not date_to:
-                self._events_cache['timestamp'] = now
-                self._events_cache['data'] = events
+                if date_to:
+                    query = query.filter(Event.event_date <= date_to)
+                    
+                rows = query.all()
                 
-            return events
+                events = []
+                for row in rows:
+                    events.append({
+                        'id': row.id,
+                        'name': row.title,
+                        'date_begin': row.event_date.isoformat() if row.event_date else None,
+                        'date_end': None,
+                        'location': row.location,
+                        'description': row.description,
+                        'tags': row.tags.split(',') if isinstance(row.tags, str) else (row.tags if row.tags else []),
+                        'image': row.image_url,
+                        'source': row.source,
+                        'source_url': row.source_url
+                    })
+                
+                if not date_from and not date_to:
+                    self._events_cache['timestamp'] = now
+                    self._events_cache['data'] = events
+                    
+                return events
         except Exception as e:
             logger.error(f"Failed to fetch events from DB: {e}")
             return []
@@ -293,6 +280,17 @@ class AgentAPI:
 
                 if event_start_date.tzinfo is not None:
                     event_start_date = event_start_date.replace(tzinfo=None)
+                
+                params = (
+                    event["title"][:255] if event["title"] else None,
+                    event["event_date"],
+                    event["description"][:5000] if event["description"] else None,
+                    event["place"][:255] if event["place"] else None,
+                    event["source"],
+                    event["source_url"],
+                    event["image_url"],
+                    ','.join(event["tags"]) if isinstance(event["tags"], list) else (event["tags"] if event["tags"] else ''),
+                )
 
             with SessionLocal() as db:
                 existing = (
@@ -366,43 +364,89 @@ class AgentAPI:
             logger.error(f"Error adding personal event: {e}")
             return {"success": False, "error": str(e)}
 
+    def send_verification_code(self, email: str) -> Dict:
+        import random
+        code = f"{random.randint(0, 999999):06d}"
+        verification_codes[email] = {
+            'code': code,
+            'expires': datetime.now() + timedelta(minutes=10)
+        }
+        
+        print("\n" + "="*60)
+        print(f"Code sent via Resend for {email}: {code}")
+        print("="*60 + "\n")
+        
+        try:
+            logger.info(f"Sending verification email to {email} with code {code}")
+            subject = "Подтверждение регистрации EventMind"
+            body = f"""
+            <div style="font-family:Arial,sans-serif;background:#FBE4D8;padding:24px;border-radius:18px;">
+                <h2 style="color:#180018;">Добро пожаловать в EventMind!</h2>
+                <p style="color:#512A59;font-size:16px;">
+                    Ваш код для подтверждения регистрации: <strong style="font-size:20px;">{code}</strong>
+                </p>
+                <p style="color:#512A59;font-size:14px;">Код действителен 10 минут.</p>
+            </div>
+            """
+            import threading
+            def send_email_async():
+                try:
+                    send_email(to=email, subject=subject, body=body)
+                except Exception as e:
+                    logger.error(f"Background email failed: {e}")
+                    
+            threading.Thread(target=send_email_async, daemon=True).start()
+            return {'success': True, 'message': 'Code sent'}
+        except Exception as e:
+            logger.error(f"Failed to send verification email: {e}")
+            return {'success': False, 'error': f"Ошибка отправки кода на почту: {str(e)}"}
+
+    def verify_email(self, email: str, code: str) -> Dict:
+        try:
+            if email not in verification_codes:
+                return {'success': False, 'error': 'Код не был запрошен или истек'}
+            
+            record = verification_codes[email]
+            if datetime.now() > record['expires']:
+                del verification_codes[email]
+                return {'success': False, 'error': 'Код не был запрошен или истек'}
+                
+            if record['code'] != code:
+                return {'success': False, 'error': 'Неверный или устаревший код'}
+                
+            del verification_codes[email]
+            return {'success': True, 'message': 'Email verified'}
+        except Exception as e:
+            logger.error(f"Error verifying email: {e}")
+            return {'success': False, 'error': str(e)}
+
     def register_user(self, email: str, password: str, name: str = None, interests: List[str] = None) -> Dict:
         try:
-            logger.info(f"--- Direct SQL Registration Start for {email} ---")
+            logger.info(f"--- Registration Start for {email} ---")
             password_hash = hashlib.sha256(password.encode()).hexdigest()
             user_name = name or email.split('@')[0]
             
-            # Используем прямое соединение psycopg2 для гарантии записи в Неон
-            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
-            cur = conn.cursor()
-            
-            # 1. Проверяем существование
-            cur.execute("SELECT id FROM users WHERE email = %s", (email,))
-            if cur.fetchone():
-                conn.close()
-                return {'success': False, 'error': 'Пользователь с таким email уже существует'}
-            
-            # 2. Создаем пользователя
-            cur.execute(
-                "INSERT INTO users (email, password_hash, name) VALUES (%s, %s, %s) RETURNING id",
-                (email, password_hash, user_name)
-            )
-            user_id = cur.fetchone()[0]
-            logger.info(f"User created via SQL. ID: {user_id}")
-            
-            # 3. Сохраняем интересы
-            if interests:
-                for interest in interests:
-                    cur.execute(
-                        "INSERT INTO user_interests (user_id, interest) VALUES (%s, %s)",
-                        (user_id, interest)
-                    )
-                logger.info(f"Interests saved via SQL for user {user_id}")
-            
-            conn.commit()
-            conn.close()
+            with SessionLocal() as db:
+                existing = db.query(User).filter(User.email == email).first()
+                if existing:
+                    return {'success': False, 'error': 'Пользователь с таким email уже существует'}
+                
+                new_user = User(email=email, password_hash=password_hash, name=user_name)
+                db.add(new_user)
+                db.commit()
+                db.refresh(new_user)
+                
+                user_id = new_user.id
+                logger.info(f"User created via SQLAlchemy. ID: {user_id}")
+                
+                if interests:
+                    for interest in interests:
+                        db.add(UserInterest(user_id=user_id, interest=interest))
+                    db.commit()
+                    logger.info(f"Interests saved for user {user_id}")
             
             token = hashlib.sha256(f"{email}:{password}:{secrets.token_hex(16)}".encode()).hexdigest()
+
             return {
                 'success': True,
                 'data': {
@@ -414,37 +458,30 @@ class AgentAPI:
                 'message': 'Registration successful'
             }
         except Exception as e:
-            logger.error(f"CRITICAL SQL ERROR in register_user: {e}")
+            logger.error(f"CRITICAL ERROR in register_user: {e}")
             return {'success': False, 'error': f"Ошибка базы данных: {str(e)}"}
 
     def login_user(self, email: str, password: str) -> Dict:
         try:
             password_hash = hashlib.sha256(password.encode()).hexdigest()
-            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             
-            cur.execute(
-                "SELECT id, email, name FROM users WHERE email = %s AND password_hash = %s",
-                (email, password_hash)
-            )
-            user = cur.fetchone()
-            conn.close()
-            
-            if not user:
-                return {'success': False, 'error': 'Неверный email или пароль'}
-            
-            token = secrets.token_hex(16)
-            return {
-                'success': True,
-                'data': {
-                    'user_id': user['id'],
-                    'token': token,
-                    'email': user['email'],
-                    'name': user['name']
+            with SessionLocal() as db:
+                user = db.query(User).filter(User.email == email, User.password_hash == password_hash).first()
+                if not user:
+                    return {'success': False, 'error': 'Неверный email или пароль'}
+                
+                token = secrets.token_hex(16)
+                return {
+                    'success': True,
+                    'data': {
+                        'user_id': user.id,
+                        'token': token,
+                        'email': user.email,
+                        'name': user.name
+                    }
                 }
-            }
         except Exception as e:
-            logger.error(f"Error logging in via SQL: {e}")
+            logger.error(f"Error logging in: {e}")
             return {'success': False, 'error': str(e)}
 
     def get_profile(self, user_id: int) -> Dict:
@@ -544,13 +581,33 @@ class AgentAPI:
         try:
             events = self._fetch_events(force_refresh=True)
 
+            filtered_events = events
+
+            if city and city.lower() != "все города":
+                filtered_events = [e for e in filtered_events if e.get('location') and city.lower() in e.get('location').lower()]
+                
+            if event_type and event_type.lower() != "все мероприятия":
+                filtered_events = [e for e in filtered_events if e.get('tags') and any(event_type.lower() in t.lower() for t in e.get('tags'))]
+
+            if q:
+                q_lower = q.lower()
+                filtered_events = [e for e in filtered_events if (e.get('name') and q_lower in e.get('name').lower()) or (e.get('description') and q_lower in e.get('description').lower())]
+
+            total = len(filtered_events)
+            
+            page_int = int(page or 1)
+            limit_int = int(limit or 20)
+            start_idx = (page_int - 1) * limit_int
+            end_idx = start_idx + limit_int
+            paged_events = filtered_events[start_idx:end_idx]
+
             return {
                 "success": True,
                 "data": {
-                    "items": events,
-                    "total": len(events),
-                    "page": int(page or 1),
-                    "limit": int(limit or 20),
+                    "items": paged_events,
+                    "total": total,
+                    "page": page_int,
+                    "limit": limit_int,
                 },
             }
         except Exception as e:
@@ -593,62 +650,36 @@ class AgentAPI:
 
             user_id = int(user_id)
 
-            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            with SessionLocal() as db:
+                favorites = db.query(UserFavorite).filter(UserFavorite.user_id == user_id).order_by(UserFavorite.added_at.desc()).all()
+                items = []
 
-            cur.execute(
-                """
-                SELECT
-                    uf.event_id,
-                    uf.added_at,
-                    e.id AS real_event_id,
-                    e.title,
-                    e.event_date,
-                    e.location,
-                    e.description,
-                    e.tags,
-                    e.image_url,
-                    e.source,
-                    e.source_url
-                FROM user_favorites uf
-                LEFT JOIN events e ON e.id = uf.event_id
-                WHERE uf.user_id = %s
-                ORDER BY uf.added_at DESC
-                """,
-                (user_id,)
-            )
+                for fav in favorites:
+                    event = db.query(Event).filter(Event.id == fav.event_id).first()
+                    if not event:
+                        continue
+                    
+                    items.append({
+                        'id': fav.event_id,
+                        'event_id': fav.event_id,
+                        'name': event.title or f'Событие #{fav.event_id}',
+                        'title': event.title or f'Событие #{fav.event_id}',
+                        'date_begin': event.event_date.isoformat() if event.event_date else None,
+                        'start': event.event_date.isoformat() if event.event_date else None,
+                        'location': event.location or '',
+                        'description': event.description or '',
+                        'tags': event.tags.split(',') if isinstance(event.tags, str) else (event.tags if event.tags else []),
+                        'image': event.image_url,
+                        'source': event.source,
+                        'source_url': event.source_url,
+                        'added_at': fav.added_at.isoformat() if fav.added_at else None,
+                    })
 
-            rows = cur.fetchall()
-            cur.close()
-            conn.close()
-
-            items = []
-
-            for row in rows:
-                event_id = int(row['event_id'])
-                event_date = row.get('event_date')
-
-                items.append({
-                    'id': event_id,
-                    'event_id': event_id,
-                    'name': row.get('title') or f'Событие #{event_id}',
-                    'title': row.get('title') or f'Событие #{event_id}',
-                    'date_begin': event_date.isoformat() if event_date else None,
-                    'start': event_date.isoformat() if event_date else None,
-                    'location': row.get('location') or '',
-                    'description': row.get('description') or '',
-                    'tags': row.get('tags') or [],
-                    'image': row.get('image_url'),
-                    'source': row.get('source'),
-                    'source_url': row.get('source_url'),
-                    'added_at': row.get('added_at').isoformat() if row.get('added_at') else None,
-                })
-
-            return {
-                'success': True,
-                'data': items,
-                'count': len(items),
-            }
+                return {
+                    'success': True,
+                    'data': items,
+                    'count': len(items),
+                }
 
         except Exception as e:
             logger.error(f"Error getting user favorites: {e}")
@@ -663,50 +694,27 @@ class AgentAPI:
             user_id = int(user_id)
             event_id = int(event_id)
 
-            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            with SessionLocal() as db:
+                event = db.query(Event).filter(Event.id == event_id).first()
+                event_start_date = event.event_date if event else None
 
-            cur.execute(
-                "SELECT event_date FROM events WHERE id = %s",
-                (event_id,)
-            )
-            event_row = cur.fetchone()
-            event_start_date = event_row['event_date'] if event_row else None
+                existing = db.query(UserFavorite).filter(
+                    UserFavorite.user_id == user_id, 
+                    UserFavorite.event_id == event_id
+                ).first()
 
-            cur.execute(
-                """
-                SELECT id
-                FROM user_favorites
-                WHERE user_id = %s AND event_id = %s
-                LIMIT 1
-                """,
-                (user_id, event_id)
-            )
-            existing = cur.fetchone()
+                if existing:
+                    existing.event_start_date = event_start_date or existing.event_start_date
+                else:
+                    new_fav = UserFavorite(
+                        user_id=user_id, 
+                        event_id=event_id, 
+                        event_start_date=event_start_date,
+                        reminder_sent=False
+                    )
+                    db.add(new_fav)
 
-            if existing:
-                cur.execute(
-                    """
-                    UPDATE user_favorites
-                    SET event_start_date = COALESCE(%s, event_start_date)
-                    WHERE user_id = %s AND event_id = %s
-                    """,
-                    (event_start_date, user_id, event_id)
-                )
-            else:
-                cur.execute(
-                    """
-                    INSERT INTO user_favorites
-                        (user_id, event_id, event_start_date, reminder_sent, added_at)
-                    VALUES
-                        (%s, %s, %s, FALSE, NOW())
-                    """,
-                    (user_id, event_id, event_start_date)
-                )
-
-            conn.commit()
-            cur.close()
-            conn.close()
+                db.commit()
 
             return {
                 'success': True,
@@ -730,20 +738,12 @@ class AgentAPI:
             user_id = int(user_id)
             event_id = int(event_id)
 
-            conn = psycopg2.connect(os.getenv('DATABASE_URL'))
-            cur = conn.cursor()
-
-            cur.execute(
-                """
-                DELETE FROM user_favorites
-                WHERE user_id = %s AND event_id = %s
-                """,
-                (user_id, event_id)
-            )
-
-            conn.commit()
-            cur.close()
-            conn.close()
+            with SessionLocal() as db:
+                db.query(UserFavorite).filter(
+                    UserFavorite.user_id == user_id, 
+                    UserFavorite.event_id == event_id
+                ).delete()
+                db.commit()
 
             return {
                 'success': True,
@@ -879,6 +879,10 @@ class AgentAPI:
             return self.get_profile(user_id=request_data.get('user_id'))
         elif action == 'login':
             return self.login_user(request_data.get('email'), request_data.get('password'))
+        elif action == 'send_verification_code' or action == 'resend_verification_code':
+            return self.send_verification_code(request_data.get('email'))
+        elif action == 'verify_email':
+            return self.verify_email(request_data.get('email'), request_data.get('code'))
         elif action == 'register':
             return self.register_user(
                 email=request_data.get('email'),

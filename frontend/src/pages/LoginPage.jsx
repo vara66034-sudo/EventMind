@@ -106,11 +106,13 @@ const LoginPage = () => {
         localStorage.setItem('auth', JSON.stringify({
           userId: response.data.user_id,
           token: response.data.token,
-          user: response.data,
+          email: response.data.email,
+          name: response.data.name
         }));
+        window.dispatchEvent(new Event('authChange'));
         navigate('/profile');
       } else {
-        setError(response.error || 'Неверный ответ сервера');
+        setError(response?.error || 'Неверный ответ сервера');
       }
     } catch (err) {
       console.error('Login error:', err);

@@ -46,16 +46,18 @@ const toLocalDateTimeString = (value) => {
 
 export const scheduleAPI = {
   getSchedule: async (userId, status = 'planned') => {
-    return sendAction('get_schedule', {
+    const response = await sendAction('get_schedule', {
       user_id: userId,
       status,
     });
+    return response.success ? response.data : [];
   },
 
   getFavorites: async (userId) => {
-    return sendAction('get_favorites', {
+    const response = await sendAction('get_favorites', {
       user_id: userId,
     });
+    return response.success ? response.data : [];
   },
 
   addToFavorites: async (userId, eventId) => {
@@ -237,6 +239,18 @@ export const authAPI = {
     return sendAction('get_profile', {
       user_id: userId,
     });
+  },
+
+  sendVerificationCode: async (data) => {
+    return sendAction('send_verification_code', data);
+  },
+
+  resendVerificationCode: async (data) => {
+    return sendAction('resend_verification_code', data);
+  },
+
+  verifyEmail: async (data) => {
+    return sendAction('verify_email', data);
   },
 };
 
