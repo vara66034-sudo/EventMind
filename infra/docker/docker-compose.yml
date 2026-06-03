@@ -10,13 +10,19 @@ services:
       POSTGRES_DB: postgres
     volumes:
       - teamEventMind2_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   odoo:
     image: odoo:18
     container_name: teamEventMind2-odoo
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "8075:8069"
     environment:
@@ -29,7 +35,7 @@ services:
 
   backend:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/Dockerfile
     environment:
       DATABASE_URL: postgresql://odoo:odoo@db:5432/postgres
@@ -37,7 +43,8 @@ services:
       SAVE_TO_DB: "true"
       VK_PARSER_INTERVAL_MINUTES: "5"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     container_name: teamEventMind2-backend
     ports:
       - "8099:8099"

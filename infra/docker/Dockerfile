@@ -22,4 +22,4 @@ WORKDIR /app/backend
 
 EXPOSE 8099
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8099"]
+CMD ["sh", "-c", "python db/init_db.py && uvicorn app.main:app --host 0.0.0.0 --port 8099"]
