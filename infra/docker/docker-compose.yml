@@ -35,7 +35,7 @@ services:
 
   backend:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/Dockerfile
     environment:
       DATABASE_URL: postgresql://odoo:odoo@db:5432/postgres
