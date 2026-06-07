@@ -107,62 +107,28 @@ def send_email(to: str, subject: str, body: str) -> None:
     if not to:
         raise ValueError("Email recipient is empty")
 
-    email_provider = os.getenv("EMAIL_PROVIDER", "smtp").lower()
-
-    if email_provider == "resend":
-        import resend
-
-        resend_api_key = os.getenv("RESEND_API_KEY", "")
-        resend_from = os.getenv("RESEND_FROM", "EventMind <onboarding@resend.dev>")
-
-        if not resend_api_key:
-            raise RuntimeError("RESEND_API_KEY is empty. Check backend/.env")
-
-        resend.api_key = resend_api_key
-
-        result = resend.Emails.send({
-            "from": resend_from,
-            "to": [to],
-            "subject": subject,
-            "html": body,
-        })
-
-        logger.info(f"Resend email result: {result}")
+    print(f"\n[EMAIL SIMULATION] To: {to} | Subject: {subject}")
+    print(f"[EMAIL CONTENT] {body}\n")
+    
+    if not SMTP_USER or not SMTP_PASSWORD:
+        print("[!] SMTP credentials missing in .env. Email was only simulated in console.")
         return
 
-    if not SMTP_USER:
-        raise RuntimeError("SMTP_USER is empty. Check backend/.env")
-
-    if not SMTP_PASSWORD:
-        raise RuntimeError("SMTP_PASSWORD is empty. Check backend/.env")
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_USER}>"
-    msg["To"] = to
-
-    msg.attach(MIMEText(body, "html", "utf-8"))
-
-    if SMTP_PORT == 465:
-        context = ssl.create_default_context()
-
-        with smtplib.SMTP_SSL(
-            SMTP_HOST,
-            SMTP_PORT,
-            context=context,
-            timeout=60,
-        ) as server:
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_USER, [to], msg.as_string())
-
-        return
-
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
-        if SMTP_USE_TLS:
-            server.starttls(context=ssl.create_default_context())
-
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_USER}>"
+        msg["To"] = to
+        msg.attach(MIMEText(body, "html", "utf-8"))
+        
+        server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+        server.starttls()
         server.login(SMTP_USER, SMTP_PASSWORD)
-        server.sendmail(SMTP_USER, [to], msg.as_string())
+        server.send_message(msg)
+        server.quit()
+        print(f"Email successfully sent to {to}")
+    except Exception as e:
+        print(f"Failed to send email via SMTP: {e}")
 
 
 def _email_template(title: str, text: str) -> str:

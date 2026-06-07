@@ -1,11 +1,26 @@
 import logging
+import os
+import contextlib
 from gigachat import GigaChat
 from gigachat.models import Chat, Messages, MessagesRole
 from typing import List, Dict
 from datetime import datetime
-import os
 
 logger = logging.getLogger('EventMind.LLM')
+
+
+@contextlib.contextmanager
+def _no_proxy():
+    """Временно отключает системные прокси, чтобы GigaChat не падал на SOCKS4."""
+    _proxy_keys = ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY',
+                   'http_proxy', 'https_proxy', 'all_proxy')
+    saved = {k: os.environ.pop(k, None) for k in _proxy_keys}
+    try:
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
 
 class GigaChatService:
     def __init__(self, credentials: str):
@@ -43,19 +58,20 @@ class GigaChatService:
         """
 
         try:
-            with GigaChat(credentials=self.credentials, verify_ssl_certs=False) as giga:
-                payload = Chat(
-                    messages=[
-                        Messages(
-                            role=MessagesRole.USER,
-                            content=prompt
-                        )
-                    ],
-                    temperature=0.7,
-                    max_tokens=1000,
-                )
-                response = giga.chat(payload)
-                return response.choices[0].message.content
+            with _no_proxy():
+                with GigaChat(credentials=self.credentials, verify_ssl_certs=False) as giga:
+                    payload = Chat(
+                        messages=[
+                            Messages(
+                                role=MessagesRole.USER,
+                                content=prompt
+                            )
+                        ],
+                        temperature=0.7,
+                        max_tokens=1000,
+                    )
+                    response = giga.chat(payload)
+                    return response.choices[0].message.content
         except Exception as e:
             logger.error(f"GigaChat API Error: {e}")
             return "Извините, я временно не могу ответить на ваш вопрос. Пожалуйста, попробуйте позже."
@@ -71,42 +87,56 @@ class GigaChatService:
         for i, event in enumerate(top_events, 1):
             date_begin = event.get('date_begin', 'Время не указано')
             location = event.get('location', 'Место не указано')
-            events_text += f"{i}. {event['name']} (Начало: {date_begin}, Место: {location})\n"
+            tags = event.get('tags', [])
+            if isinstance(tags, list):
+                tags_str = ', '.join(tags[:5]) if tags else 'нет тегов'
+            else:
+                tags_str = str(tags)
+            description = (event.get('description') or '')[:200]
+            events_text += f"{i}. {event['name']}\n   Теги: {tags_str}\n   Дата: {date_begin}, Место: {location}\n   Описание: {description}\n\n"
 
-        interests_text = ", ".join(user_interests) if user_interests else "разные"
+        interests_text = ", ".join(user_interests) if user_interests else "разные темы"
 
         # Системный промпт
         prompt = f"""
         Ты — умный и дружелюбный ИИ-ассистент по мероприятиям EventMind.
-        Твоя задача — порекомендовать пользователю события. Я уже проверил его расписание, эти события точно подходят!
         
         Интересы пользователя: {interests_text}
         
-        Список подходящих событий:
+        Список подобранных событий (с тегами и описанием):
         {events_text}
         
-        Напиши ОДИН связный и красивый текст, в котором ты обращаешься к пользователю.
-        Текст должен быть примерно такого формата (но адаптируй его под реальные события и интересы):
-        "Тебе нравится [интересы], поэтому я рекомендую тебе [Название события 1]. Там будет то-то. А еще обрати внимание на [Название события 2] — там ты сможешь..."
+        Твоя задача — написать ОДИН живой текст-рекомендацию, обращаясь к пользователю на «ты».
         
-        ВАЖНОЕ ПРАВИЛО ФОРМАТИРОВАНИЯ:
-        Не используй разделители вроде "|||". Просто напиши один связный и приятный текст-рекомендацию, который охватывает все предложенные события. Не используй Markdown заголовки.
+        ОБЯЗАТЕЛЬНО для каждого события объясни:
+        - Почему именно ОНО подходит данному пользователю (связь с его интересами: {interests_text})
+        - Что конкретно он там найдёт или сможет сделать
+        
+        Пример хорошего формата:
+        «Тебе нравится [интерес X], поэтому я выбрал [Название события 1] — там будет [конкретная причина, почему подходит]. Кроме того, обрати внимание на [Название события 2]: поскольку ты интересуешься [интерес Y], тебе точно понравится [что там будет]...»
+        
+        ПРАВИЛА ФОРМАТИРОВАНИЯ:
+        - Не используй символы "|||", "---", Markdown-заголовки, хештеги (#)
+        - Пиши связно, как живой человек, без сухого перечисления
+        - Текст должен быть тёплым и мотивирующим
+        - Упомяни каждое событие из списка
         """
 
         try:
-            with GigaChat(credentials=self.credentials, verify_ssl_certs=False) as giga:
-                payload = Chat(
-                    messages=[
-                        Messages(
-                            role=MessagesRole.USER,
-                            content=prompt
-                        )
-                    ],
-                    temperature=0.7,
-                    max_tokens=1000,
-                )
-                response = giga.chat(payload)
-                return response.choices[0].message.content
+            with _no_proxy():
+                with GigaChat(credentials=self.credentials, verify_ssl_certs=False) as giga:
+                    payload = Chat(
+                        messages=[
+                            Messages(
+                                role=MessagesRole.USER,
+                                content=prompt
+                            )
+                        ],
+                        temperature=0.7,
+                        max_tokens=1000,
+                    )
+                    response = giga.chat(payload)
+                    return response.choices[0].message.content
         except Exception as e:
             logger.error(f"GigaChat API Error: {e}")
             return "События подобраны, но я временно не могу сгенерировать персональное описание."

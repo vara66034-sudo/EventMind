@@ -85,25 +85,24 @@ const PriceButton = styled.button`
   }
 `;
 
-const AddButton = styled.button`
+const SourceLink = styled.a`
   flex: 1;
   padding: 12px 32px;
-  background: #854E6B;
-  color: #FFFFFF;
-  border: none;
+  background: #FFFFFF;
+  color: #512A59;
+  border: 2px solid #512A59;
   border-radius: 20px;
   font-size: 16px;
   font-weight: 600;
-  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transition: background 0.2s ease;
   
   &:hover {
-    background: #512A59;
-  }
-  
-  &:disabled {
-    background: #D9D9D9;
-    cursor: not-allowed;
+    background: #DFB6B2;
   }
 `;
 
@@ -300,10 +299,14 @@ const EventDetailPage = () => {
             <Info>📅 {formatDate(event.start || event.date_begin)}</Info>
             <Info>📍 {event.location}</Info>
             <ButtonGroup>
-              <PriceButton>{event.price ? `${event.price} ₽` : 'Бесплатно'}</PriceButton>
-              <AddButton onClick={handleAddToSchedule} disabled={isAdding || !userId}>
-                {isAdding ? 'Добавление...' : !userId ? 'Войдите' : 'В календарь'}
-              </AddButton>
+              {event.price ? (
+                <PriceButton>{event.price} ₽</PriceButton>
+              ) : null}
+              {event.source_url && (
+                <SourceLink href={event.source_url} target="_blank" rel="noopener noreferrer">
+                  Источник
+                </SourceLink>
+              )}
               <FavoriteButton 
                 onClick={handleToggleFavorite}
                 isActive={isFavorite}

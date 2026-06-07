@@ -92,26 +92,6 @@ const UserInfo = styled.p`
   margin: 8px 0;
 `;
 
-const EditButton = styled(Link)`
-  margin-top: 20px;
-  padding: 10px 30px;
-  background: #FFFFFF;
-  color: #512A59;
-  border: none;
-  border-radius: 20px;
-  font-size: 14px;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  text-decoration: none;
-  cursor: pointer;
-  
-  &:hover {
-    background: #DFB6B2;
-  }
-`;
-
 const ProfileCalendar = styled.div`
   flex: 1;
   background: #512A59;
@@ -777,10 +757,6 @@ const ProfilePage = () => {
               <UserName>{user?.name}</UserName>
               
               <UserInfo>{user?.email}</UserInfo>
-              
-              <EditButton to="/profile/edit">
-                ✏️ Редактировать
-              </EditButton>
             </ProfileInfo>
 
             <ProfileCalendar>

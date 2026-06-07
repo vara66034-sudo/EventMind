@@ -108,20 +108,22 @@ const PriceButton = styled.div`
   text-align: center;
 `;
 
-const AddButton = styled.button`
+const SourceLink = styled.a`
   flex: 1 1 120px;
   padding: 10px 12px;
-  background: #854E6B;
-  color: #FFFFFF;
-  border: none;
+  background: #FFFFFF;
+  color: #512A59;
   border-radius: 20px;
   font-size: 13px;
   font-weight: 600;
+  text-align: center;
+  text-decoration: none;
   cursor: pointer;
-  transition: background 0.2s ease;
+  border: 2px solid #512A59;
+  box-sizing: border-box;
 
   &:hover {
-    background: #512A59;
+    background: #DFB6B2;
   }
 `;
 
@@ -237,13 +239,22 @@ const EventCard = ({
       </ClickableArea>
 
       <ButtonGroup>
-        <PriceButton>
-          {event.price ? `${event.price} ₽` : 'Бесплатно'}
-        </PriceButton>
+        {event.price ? (
+          <PriceButton>
+            {event.price} ₽
+          </PriceButton>
+        ) : null}
 
-        <AddButton type="button" onClick={handleAddClick}>
-          В календарь
-        </AddButton>
+        {event.source_url && (
+          <SourceLink 
+            href={event.source_url} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            Источник
+          </SourceLink>
+        )}
 
         <FavoriteButton
           type="button"

@@ -87,13 +87,21 @@ const RegisterPage = () => {
     setIsSubmitting(true);
     
     try {
+      // Сохраняем данные регистрации для последующего использования
       localStorage.setItem('pendingRegistration', JSON.stringify({ name, email, password }));
       
-      // Пропускаем отправку кода и проверку email
-      navigate('/select-interests', { state: { email } });
+      // Отправляем 6-значный код верификации на email
+      const response = await authAPI.sendVerificationCode({ email });
+      
+      if (response && response.success) {
+        // Переходим на страницу ввода кода
+        navigate('/verify-email', { state: { email } });
+      } else {
+        alert(response?.error || 'Ошибка отправки кода на почту');
+      }
     } catch (error) {
       console.error('Register error:', error);
-      alert('Ошибка подготовки регистрации');
+      alert('Ошибка отправки кода подтверждения. Проверьте email и попробуйте снова.');
     } finally {
       setIsSubmitting(false);
     }

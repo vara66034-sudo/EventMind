@@ -21,22 +21,6 @@ const CalendarTitle = styled.h2`
   align-items: center;
 `;
 
-const ExportButton = styled.button`
-  background: #854E6B;
-  color: #FFFFFF;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s ease;
-  
-  &:hover {
-    background: #512A59;
-  }
-`;
-
 const CalendarWrapper = styled.div`
   background: #D9D9D9;
   border-radius: 12px;
@@ -151,6 +135,11 @@ const Calendar = () => {
   const [schedule, setSchedule] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  const userId = useMemo(() => {
+    const auth = localStorage.getItem('auth');
+    return auth ? JSON.parse(auth).userId : null;
+  }, []);
+
   const today = new Date();
   const todayDate = today.getDate();
   const currentMonth = today.getMonth();
@@ -189,9 +178,13 @@ const Calendar = () => {
   }, [schedule]);
 
   const loadSchedule = useCallback(async () => {
+    if (!userId) {
+      setSchedule([]);
+      return;
+    }
     try {
       setLoading(true);
-      const response = await scheduleAPI.getSchedule('planned');
+      const response = await scheduleAPI.getSchedule(userId, 'planned');
       setSchedule(Array.isArray(response) ? response : []);
     } catch (error) {
       console.error('Error loading schedule:', error);
@@ -199,20 +192,21 @@ const Calendar = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     loadSchedule();
   }, [loadSchedule]);
 
   const handleExportICS = useCallback(async () => {
+    if (!userId) return;
     try {
-      await scheduleAPI.exportICS();
+      await scheduleAPI.exportICS(userId);
     } catch (error) {
       console.error('Error exporting ICS:', error);
       alert('Не удалось экспортировать календарь');
     }
-  }, []);
+  }, [userId]);
 
   const formatTime = (isoString) => {
     if (!isoString) return '';
@@ -228,7 +222,6 @@ const Calendar = () => {
     <Container>
       <CalendarTitle>
         Календарь событий
-        <ExportButton onClick={handleExportICS}>📥 Скачать .ics</ExportButton>
       </CalendarTitle>
       <CalendarWrapper>
         <CalendarHeader>

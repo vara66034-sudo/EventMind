@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -17,7 +18,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 import os
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
 
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -28,7 +29,17 @@ if SQLALCHEMY_DATABASE_URL and SQLALCHEMY_DATABASE_URL.startswith("postgres://")
         1,
     )
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+# Fallback to local SQLite if remote DB is unavailable
+if not SQLALCHEMY_DATABASE_URL:
+    _db_path = Path(__file__).resolve().parents[2] / "eventmind.db"
+    SQLALCHEMY_DATABASE_URL = f"sqlite:///{_db_path}"
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False} if "sqlite" in SQLALCHEMY_DATABASE_URL else {},
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
 
 SessionLocal = sessionmaker(
     autocommit=False,

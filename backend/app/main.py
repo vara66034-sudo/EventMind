@@ -92,12 +92,12 @@ def get_user_email(user_id: int) -> Optional[str]:
 
 @app.on_event("startup")
 async def startup_event():
-    from .integrations.parsers.scheduler import start_vk_parser_scheduler
+    # from .integrations.parsers.scheduler import start_vk_parser_scheduler
     from .schedule.models import SessionLocal
     from .schedule.services import start_scheduler
 
     start_scheduler(SessionLocal, get_user_email)
-    start_vk_parser_scheduler()
+    # start_vk_parser_scheduler()  # Disabled: no hourly parsing
 
     logger.info("Schedulers started successfully")
 
