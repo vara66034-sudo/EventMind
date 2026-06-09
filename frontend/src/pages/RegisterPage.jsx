@@ -90,18 +90,11 @@ const RegisterPage = () => {
       // Сохраняем данные регистрации для последующего использования
       localStorage.setItem('pendingRegistration', JSON.stringify({ name, email, password }));
       
-      // Отправляем 6-значный код верификации на email
-      const response = await authAPI.sendVerificationCode({ email });
-      
-      if (response && response.success) {
-        // Переходим на страницу ввода кода
-        navigate('/verify-email', { state: { email } });
-      } else {
-        alert(response?.error || 'Ошибка отправки кода на почту');
-      }
+      // Переходим на страницу выбора интересов напрямую
+      navigate('/select-interests', { state: { email } });
     } catch (error) {
       console.error('Register error:', error);
-      alert('Ошибка отправки кода подтверждения. Проверьте email и попробуйте снова.');
+      alert('Произошла ошибка. Попробуйте снова.');
     } finally {
       setIsSubmitting(false);
     }

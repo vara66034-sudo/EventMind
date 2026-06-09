@@ -240,18 +240,6 @@ export const authAPI = {
       user_id: userId,
     });
   },
-
-  sendVerificationCode: async (data) => {
-    return sendAction('send_verification_code', data);
-  },
-
-  resendVerificationCode: async (data) => {
-    return sendAction('resend_verification_code', data);
-  },
-
-  verifyEmail: async (data) => {
-    return sendAction('verify_email', data);
-  },
 };
 
 export const userAPI = {

@@ -30,8 +30,6 @@ from datetime import timedelta
 
 logger = logging.getLogger('EventMind.API')
 
-verification_codes = {}
-
 
 class AgentAPI:
 
@@ -364,61 +362,6 @@ class AgentAPI:
             logger.error(f"Error adding personal event: {e}")
             return {"success": False, "error": str(e)}
 
-    def send_verification_code(self, email: str) -> Dict:
-        import random
-        code = f"{random.randint(0, 999999):06d}"
-        verification_codes[email] = {
-            'code': code,
-            'expires': datetime.now() + timedelta(minutes=10)
-        }
-        
-        print("\n" + "="*60)
-        print(f"Code sent via Resend for {email}: {code}")
-        print("="*60 + "\n")
-        
-        try:
-            logger.info(f"Sending verification email to {email} with code {code}")
-            subject = "Подтверждение регистрации EventMind"
-            body = f"""
-            <div style="font-family:Arial,sans-serif;background:#FBE4D8;padding:24px;border-radius:18px;">
-                <h2 style="color:#180018;">Добро пожаловать в EventMind!</h2>
-                <p style="color:#512A59;font-size:16px;">
-                    Ваш код для подтверждения регистрации: <strong style="font-size:20px;">{code}</strong>
-                </p>
-                <p style="color:#512A59;font-size:14px;">Код действителен 10 минут.</p>
-            </div>
-            """
-            import threading
-            def send_email_async():
-                try:
-                    send_email(to=email, subject=subject, body=body)
-                except Exception as e:
-                    logger.error(f"Background email failed: {e}")
-                    
-            threading.Thread(target=send_email_async, daemon=True).start()
-            return {'success': True, 'message': 'Code sent'}
-        except Exception as e:
-            logger.error(f"Failed to send verification email: {e}")
-            return {'success': False, 'error': f"Ошибка отправки кода на почту: {str(e)}"}
-
-    def verify_email(self, email: str, code: str) -> Dict:
-        try:
-            if email not in verification_codes:
-                return {'success': False, 'error': 'Код не был запрошен или истек'}
-            
-            record = verification_codes[email]
-            if datetime.now() > record['expires']:
-                del verification_codes[email]
-                return {'success': False, 'error': 'Код не был запрошен или истек'}
-                
-            if record['code'] != code:
-                return {'success': False, 'error': 'Неверный или устаревший код'}
-                
-            del verification_codes[email]
-            return {'success': True, 'message': 'Email verified'}
-        except Exception as e:
-            logger.error(f"Error verifying email: {e}")
-            return {'success': False, 'error': str(e)}
 
     def register_user(self, email: str, password: str, name: str = None, interests: List[str] = None) -> Dict:
         try:
@@ -879,10 +822,7 @@ class AgentAPI:
             return self.get_profile(user_id=request_data.get('user_id'))
         elif action == 'login':
             return self.login_user(request_data.get('email'), request_data.get('password'))
-        elif action == 'send_verification_code' or action == 'resend_verification_code':
-            return self.send_verification_code(request_data.get('email'))
-        elif action == 'verify_email':
-            return self.verify_email(request_data.get('email'), request_data.get('code'))
+
         elif action == 'register':
             return self.register_user(
                 email=request_data.get('email'),
