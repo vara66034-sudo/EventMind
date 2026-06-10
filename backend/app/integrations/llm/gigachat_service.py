@@ -149,6 +149,6 @@ def get_llm_service() -> GigaChatService:
         # Используем ключ из .env или дефолтный
         credentials = os.getenv("GIGACHAT_CREDENTIALS")
         if not credentials:
-            credentials = "MDE5ZDMyYjAtMGNhMC03MzY5LTliNzMtOWI0MWU1NzY1MWM2OjAzMjIxN2IyLTA0MWUtNGU4Zi1hMGI4LTljMjUyNTMxYTc5Zg=="
+            raise RuntimeError("GIGACHAT_CREDENTIALS is not set in environment")
         _llm_instance = GigaChatService(credentials=credentials)
     return _llm_instance
