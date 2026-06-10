@@ -40,6 +40,7 @@ services:
     environment:
       DATABASE_URL: postgresql://odoo:odoo@db:5432/postgres
       VK_TOKEN: dfa1c6afdfa1c6afdfa1c6af8fdc9eafb9ddfa1dfa1c6afb619f2ab0e35e5a8b76e6915
+      GIGACHAT_CREDENTIALS: MDE5YWRlNmUtZTM5My03OTkxLThlZDgtNTNjZWZiMWMxZDNkOjQ4ZjE0NmIyLTViZjQtNDY1YS1hNTJhLTc5NzFlMTAzYmU0NQ==
       SAVE_TO_DB: "true"
       VK_PARSER_INTERVAL_MINUTES: "5"
     depends_on:
